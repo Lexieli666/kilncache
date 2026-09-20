@@ -1,0 +1,12 @@
+# Mark generated trees so GitHub's language statistics describe the project
+# rather than its fixtures.
+#
+# fixtures/bazel-cpp is ~2.6 MB of machine-generated C++ produced by
+# scripts/gen_bazel_fixture.py. It exists to give the compiler a known,
+# repeatable quantity of work for the end-to-end benchmark; nobody wrote it and
+# nobody reads it. Without this, GitHub reports the project as a C++ repository.
+#
+# bench/results is committed raw measurement output, which is evidence rather
+# than source.
+fixtures/** linguist-generated=true
+bench/results/** linguist-generated=true

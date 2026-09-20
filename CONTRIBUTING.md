@@ -75,10 +75,15 @@ claim, it is a mood. Every absence claim states its sample size.
   caught them. A bug list is evidence the tests work; an empty one is evidence
   they don't.
 
-## Built with an AI assistant
+## How this was built
 
-This repository was written with Claude Code under the protocol above: the
-acceptance criteria and the falsifier come first, the implementation follows,
-and no number reaches a document without a committed raw result behind it. Where
-the assistant produced something wrong, the bug and the test that caught it are
-in `docs/bugs.md` rather than quietly amended away.
+The three rules above were in place before there was any code to be tempted
+about, and the order of work followed from them: the acceptance criterion and
+its falsifier come first, the implementation second, and no number reaches a
+document without a committed raw result behind it.
+
+The consequence is `docs/bugs.md`. Twelve bugs are recorded there with the test,
+benchmark or CI run that caught each one — including the ones that were
+mistakes in a test rather than in the product, and the one optimisation that was
+real, was applied, and changed nothing measurable. A project that found no bugs
+worth writing down either had no tests or was not honest about them.
