@@ -7,42 +7,35 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/Lexieli666/kilncache/internal/protocol"
 	"github.com/Lexieli666/kilncache/internal/storage"
 )
-
-// ObjectStore is the storage surface the HTTP layer needs. It is an interface
-// so that the handler can be tested against a store that fails on demand, and
-// so that Phase 2's replicating store can be substituted without touching this
-// file.
-type ObjectStore interface {
-	Put(ctx context.Context, ns storage.Namespace, key string, r io.Reader, declaredSize int64) (storage.PutResult, error)
-	Get(ns storage.Namespace, key string) (*storage.Object, error)
-	Stat(ns storage.Namespace, key string) (storage.Stat, error)
-}
 
 // CacheHandler serves Bazel's HTTP remote cache protocol.
 //
 // Protocol notes live in docs/protocol.md. The short version: Bazel issues
 // GET/HEAD/PUT against /ac/<hash> and /cas/<hash>, treats 200 as a hit, 404 as
-// a miss, and any other status as an error that disables the cache for the
-// invocation. That last behaviour is why this handler is careful to return 404
-// and not 400 for a key it cannot parse: a malformed key is a miss, not a
-// reason to turn the cache off for a whole build.
+// a miss, and any other status as an error that disables the remote cache for
+// the rest of the invocation. That last behaviour is why this handler returns
+// 404, not 400, for a key it cannot parse: a malformed key costs one object,
+// and a 400 would cost a whole build its cache.
 type CacheHandler struct {
-	store ObjectStore
-	log   *slog.Logger
+	backend protocol.Backend
+	log     *slog.Logger
+	node    string
 
-	// maxObjectBytes mirrors the store's limit so the handler can reject an
-	// oversize upload from the Content-Length alone, before reading a byte.
+	// maxObjectBytes mirrors the store's limit so an oversize upload can be
+	// refused from the Content-Length alone, before a byte is read.
 	maxObjectBytes int64
 }
 
 // NewCacheHandler builds the object-protocol handler.
-func NewCacheHandler(store ObjectStore, log *slog.Logger, maxObjectBytes int64) *CacheHandler {
-	return &CacheHandler{store: store, log: log, maxObjectBytes: maxObjectBytes}
+func NewCacheHandler(backend protocol.Backend, log *slog.Logger, node string, maxObjectBytes int64) *CacheHandler {
+	return &CacheHandler{backend: backend, log: log, node: node, maxObjectBytes: maxObjectBytes}
 }
 
 const contentTypeOctet = "application/octet-stream"
@@ -50,8 +43,6 @@ const contentTypeOctet = "application/octet-stream"
 func (h *CacheHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ns, key, ok := parsePath(r.URL.Path)
 	if !ok {
-		// Unparseable path: treat as a miss for GET/HEAD so a build continues,
-		// and as a client error for PUT so a broken client is told.
 		if r.Method == http.MethodPut || r.Method == http.MethodPost {
 			httpError(w, http.StatusBadRequest, "malformed cache path")
 			return
@@ -60,25 +51,38 @@ func (h *CacheHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	hop := inboundHop(r)
+
 	switch r.Method {
 	case http.MethodGet:
-		h.serveGet(w, r, ns, key, true)
+		h.serveGet(w, r, ns, key, hop, true)
 	case http.MethodHead:
-		h.serveGet(w, r, ns, key, false)
+		h.serveGet(w, r, ns, key, hop, false)
 	case http.MethodPut, http.MethodPost:
-		h.servePut(w, r, ns, key)
+		h.servePut(w, r, ns, key, hop)
 	default:
 		w.Header().Set("Allow", "GET, HEAD, PUT")
 		httpError(w, http.StatusMethodNotAllowed, "method not allowed")
 	}
 }
 
-// parsePath splits /cas/<hash> or /ac/<hash>, tolerating the /cache/ prefix
-// that some Bazel configurations use and a trailing slash.
+// inboundHop reads the role another node assigned to this request.
 //
-// It returns ok=false rather than an error because every caller does the same
-// thing with a failure, and because the distinction between "not a cache path"
-// and "a cache path with a bad key" is not one the protocol makes.
+// The forwarding header is what makes the role trustworthy: a request with no
+// X-Kilncache-Forwarded-By is from a client no matter what it claims its hop
+// is, so a client cannot talk this node into skipping replication by setting a
+// header. A request that *is* forwarded but names no hop is treated as a
+// replica write — terminal — because the conservative reading of an unknown
+// peer version is "do not forward further".
+func inboundHop(r *http.Request) protocol.Hop {
+	if r.Header.Get(protocol.HeaderForwardedBy) == "" {
+		return protocol.HopClient
+	}
+	return protocol.ParseHop(r.Header.Get(protocol.HeaderHop))
+}
+
+// parsePath splits /cas/<hash> or /ac/<hash>, tolerating the /cache/ prefix
+// some Bazel configurations use and a trailing slash.
 func parsePath(p string) (storage.Namespace, string, bool) {
 	p = strings.TrimPrefix(p, "/")
 	p = strings.TrimSuffix(p, "/")
@@ -88,7 +92,6 @@ func parsePath(p string) (storage.Namespace, string, bool) {
 	if !found {
 		return "", "", false
 	}
-	// Anything after the key is not part of this protocol.
 	if strings.Contains(keyPart, "/") {
 		return "", "", false
 	}
@@ -102,49 +105,52 @@ func parsePath(p string) (storage.Namespace, string, bool) {
 	return ns, keyPart, true
 }
 
-func (h *CacheHandler) serveGet(w http.ResponseWriter, r *http.Request, ns storage.Namespace, key string, withBody bool) {
+func (h *CacheHandler) serveGet(w http.ResponseWriter, r *http.Request, ns storage.Namespace, key string, hop protocol.Hop, withBody bool) {
 	start := time.Now()
 
 	if !withBody {
-		st, err := h.store.Stat(ns, key)
+		info, err := h.backend.Stat(r.Context(), ns, key, hop)
 		if err != nil {
 			h.writeGetError(w, r, ns, key, err)
 			return
 		}
-		setObjectHeaders(w, st.Size)
+		w.Header().Set(protocol.HeaderSource, info.Source)
+		setObjectHeaders(w, info.Size)
 		w.WriteHeader(http.StatusOK)
 		return
 	}
 
-	obj, err := h.store.Get(ns, key)
+	obj, err := h.backend.Open(r.Context(), ns, key, hop)
 	if err != nil {
 		h.writeGetError(w, r, ns, key, err)
 		return
 	}
 	defer obj.Close()
 
-	setObjectHeaders(w, obj.Size)
+	w.Header().Set(protocol.HeaderSource, obj.Source())
+	setObjectHeaders(w, obj.Size())
 	w.WriteHeader(http.StatusOK)
 
 	n, copyErr := obj.WriteTo(w)
 	if copyErr != nil {
-		// The status line is already sent, so there is no way to signal the
-		// failure in-band. The client sees a body shorter than Content-Length
-		// and treats it as an error, which is the correct outcome; all this
-		// side can do is record it.
+		// The status line is already sent, so the failure cannot be signalled
+		// in band. The client sees a body shorter than Content-Length and
+		// treats it as an error, which is correct; all this side can do is
+		// record it.
 		h.log.Warn("get body truncated",
 			slog.String("ns", ns.String()), slog.String("key", key),
-			slog.Int64("sent", n), slog.Int64("size", obj.Size),
+			slog.Int64("sent", n), slog.Int64("size", obj.Size()),
+			slog.String("source", obj.Source()),
 			slog.String("err", copyErr.Error()))
 		return
 	}
 
 	// Verification happens after the bytes are on the wire, which sounds
-	// useless and is not: a failure here means this node has a corrupt local
-	// object, and finding that out is what lets repair replace it. The client
-	// also verifies -- CAS digests are self-describing -- so a corrupt object
-	// is caught on both ends, and the count of these events is what the
-	// "zero corrupted reads" claim is measured against.
+	// useless and is not: a failure means this node holds a corrupt object, and
+	// finding that out is what lets repair replace it. The client verifies too
+	// -- CAS digests are self-describing -- so corruption is caught at both
+	// ends, and the count of these events is what "zero corrupted reads" is
+	// measured against.
 	if err := obj.Verify(); err != nil {
 		h.log.Error("served an object that failed local verification",
 			slog.String("ns", ns.String()), slog.String("key", key),
@@ -154,7 +160,8 @@ func (h *CacheHandler) serveGet(w http.ResponseWriter, r *http.Request, ns stora
 
 	h.log.Debug("cache hit",
 		slog.String("ns", ns.String()), slog.String("key", key),
-		slog.Int64("size", obj.Size),
+		slog.Int64("size", obj.Size()),
+		slog.String("source", obj.Source()),
 		slog.Float64("duration_ms", float64(time.Since(start).Microseconds())/1000))
 }
 
@@ -167,22 +174,28 @@ func (h *CacheHandler) writeGetError(w http.ResponseWriter, r *http.Request, ns 
 		http.NotFound(w, r)
 	case errors.Is(err, storage.ErrClosed):
 		httpError(w, http.StatusServiceUnavailable, "node is shutting down")
+	case errors.Is(err, context.Canceled):
+		h.log.Debug("read abandoned by client", slog.String("key", key))
+		httpError(w, StatusClientClosedRequest, "client closed the connection")
 	default:
+		// Every holder unreachable lands here. It is deliberately a 503 and not
+		// a 404: a partition that looked like a cold cache would make Bazel
+		// rebuild everything rather than report a problem.
 		h.log.Error("get failed",
 			slog.String("ns", ns.String()), slog.String("key", key),
 			slog.String("err", err.Error()))
-		httpError(w, http.StatusInternalServerError, "read failed")
+		httpError(w, http.StatusServiceUnavailable, "no holder could serve this object")
 	}
 }
 
-func (h *CacheHandler) servePut(w http.ResponseWriter, r *http.Request, ns storage.Namespace, key string) {
+func (h *CacheHandler) servePut(w http.ResponseWriter, r *http.Request, ns storage.Namespace, key string, hop protocol.Hop) {
 	if r.Body == nil {
 		httpError(w, http.StatusBadRequest, "missing body")
 		return
 	}
 	defer r.Body.Close()
 
-	// Reject on the declared length before reading anything. A client that
+	// Refuse on the declared length before reading anything. A client that
 	// announces a 10 GiB upload should be told no immediately, not after ten
 	// gigabytes have crossed the network.
 	if h.maxObjectBytes > 0 && r.ContentLength > h.maxObjectBytes {
@@ -192,19 +205,19 @@ func (h *CacheHandler) servePut(w http.ResponseWriter, r *http.Request, ns stora
 		return
 	}
 
-	res, err := h.store.Put(r.Context(), ns, key, r.Body, r.ContentLength)
+	res, err := h.backend.Put(r.Context(), ns, key, r.Body, r.ContentLength, hop)
 	if err != nil {
-		h.writePutError(w, r, ns, key, err)
+		h.writePutError(w, ns, key, res, err)
 		return
 	}
 
-	w.Header().Set(HeaderSource, "local")
-	if res.AlreadyStored {
-		w.Header().Set("X-Kilncache-Already-Stored", "true")
+	if len(res.Holders) > 0 {
+		w.Header().Set(protocol.HeaderHolders, strings.Join(res.Holders, ","))
 	}
-	// Bazel accepts any 2xx. 201 for a new object and 200 for one that was
-	// already present is more informative than 200 for both, and costs nothing.
+	w.Header().Set(protocol.HeaderCopies, strconv.Itoa(res.Copies))
+	w.Header().Set(protocol.HeaderCopiesWanted, strconv.Itoa(res.Wanted))
 	if res.AlreadyStored {
+		w.Header().Set(protocol.HeaderAlreadyStored, "true")
 		w.WriteHeader(http.StatusOK)
 	} else {
 		w.WriteHeader(http.StatusCreated)
@@ -213,16 +226,15 @@ func (h *CacheHandler) servePut(w http.ResponseWriter, r *http.Request, ns stora
 	h.log.Debug("stored",
 		slog.String("ns", ns.String()), slog.String("key", key),
 		slog.Int64("size", res.Size),
+		slog.Int("copies", res.Copies),
+		slog.String("hop", string(hop)),
 		slog.Bool("already_stored", res.AlreadyStored),
 		slog.Bool("durable", res.Durable))
 }
 
-func (h *CacheHandler) writePutError(w http.ResponseWriter, r *http.Request, ns storage.Namespace, key string, err error) {
+func (h *CacheHandler) writePutError(w http.ResponseWriter, ns storage.Namespace, key string, res protocol.PutOutcome, err error) {
 	switch {
 	case errors.Is(err, storage.ErrDigestMismatch):
-		// 400: the client sent bytes that do not match the key it chose. This
-		// is a client bug or a corrupted transfer, and retrying unchanged will
-		// not help.
 		h.log.Warn("rejected digest mismatch",
 			slog.String("ns", ns.String()), slog.String("key", key),
 			slog.String("err", err.Error()))
@@ -235,10 +247,19 @@ func (h *CacheHandler) writePutError(w http.ResponseWriter, r *http.Request, ns 
 		httpError(w, http.StatusBadRequest, err.Error())
 	case errors.Is(err, storage.ErrClosed):
 		httpError(w, http.StatusServiceUnavailable, "node is shutting down")
+	case errors.Is(err, protocol.ErrInsufficientReplicas):
+		// The object may well be on disk here. Saying 201 anyway would mean the
+		// replication factor is whatever happened to work, and the repair
+		// worker would have no reason to look at this key. 503 tells the client
+		// the truth and invites a retry.
+		h.log.Warn("could not place the required number of copies",
+			slog.String("ns", ns.String()), slog.String("key", key),
+			slog.Int("copies", res.Copies), slog.Int("wanted", res.Wanted),
+			slog.String("err", err.Error()))
+		w.Header().Set(protocol.HeaderCopies, strconv.Itoa(res.Copies))
+		w.Header().Set(protocol.HeaderCopiesWanted, strconv.Itoa(res.Wanted))
+		httpError(w, http.StatusServiceUnavailable, err.Error())
 	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
-		// The client went away mid-upload. Nothing was published. Writing a
-		// status to a closed connection is harmless and keeps the access log
-		// honest about what happened.
 		h.log.Debug("upload abandoned by client",
 			slog.String("ns", ns.String()), slog.String("key", key))
 		httpError(w, StatusClientClosedRequest, "client closed the connection")
@@ -253,13 +274,12 @@ func (h *CacheHandler) writePutError(w http.ResponseWriter, r *http.Request, ns 
 			slog.String("err", err.Error()))
 		httpError(w, http.StatusInternalServerError, "write failed")
 	}
-	_ = r
 }
 
 // StatusClientClosedRequest is nginx's 499. Go's http package has no constant
-// for it. It appears only in this node's own access log -- by the time it is
-// written the client is gone -- and exists so that an abandoned upload is
-// visibly different from a server error in the metrics.
+// for it. It appears only in this node's own logs and metrics -- by the time it
+// is written the client is gone -- and exists so that an abandoned upload is
+// visibly different from a server error.
 const StatusClientClosedRequest = 499
 
 func isBodyReadError(err error) bool {
@@ -285,10 +305,9 @@ func (h *CacheHandler) drainBody(r *http.Request) {
 func setObjectHeaders(w http.ResponseWriter, size int64) {
 	h := w.Header()
 	h.Set("Content-Type", contentTypeOctet)
-	h.Set("Content-Length", fmt.Sprintf("%d", size))
+	h.Set("Content-Length", strconv.FormatInt(size, 10))
 	// Objects are immutable (CAS) or explicitly overwritten (AC); in neither
-	// case should an intermediary revalidate, and in neither case is a stale
-	// copy acceptable. no-store is the honest answer for both.
+	// case should an intermediary serve a stale copy.
 	h.Set("Cache-Control", "no-store")
 }
 

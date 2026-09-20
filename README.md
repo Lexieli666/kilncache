@@ -8,14 +8,17 @@ cache protocol. Three nodes, content-addressed objects, rendezvous placement,
 two-copy replication before acknowledgement, bounded disk with access-aware
 eviction, and automatic repair of missing replicas.
 
-> **Status: Phase 1 complete.** A single node serves the Bazel HTTP cache
-> protocol end to end: Bazel builds the 300-target C++ fixture against it,
-> `bazel clean --expunge` wipes the local cache, and the rebuild is served
-> entirely from KilnCache with byte-identical outputs
+> **Status: Phase 2 complete.** Bazel builds the 300-target C++ fixture against
+> a node, `bazel clean --expunge` wipes the local cache, and the rebuild is
+> served entirely from KilnCache with byte-identical outputs
 > ([raw evidence](bench/results/2026-09-20-yutongzhao/phase1-bazel-e2e.md)).
-> Placement, replication, quota and repair land in Phases 2 and 3; every section
-> below that describes unimplemented behaviour says so. No performance number
-> appears in this file until it has a raw result file under `bench/results/`.
+> Three nodes place objects by rendezvous hashing and replicate synchronously;
+> stopping a container and reading its objects through another node returns the
+> right bytes
+> ([raw evidence](bench/results/2026-09-20-yutongzhao/phase2-docker-node-loss.json)).
+> Quota, eviction and repair land in Phase 3; every section below that describes
+> unimplemented behaviour says so. No performance number appears in this file
+> until it has a raw result file under `bench/results/`.
 
 ## The problem
 
@@ -150,6 +153,29 @@ This checkout lives on `/mnt/d`, a 9p mount. Three consequences, all handled:
 
 `scripts/device-baseline.sh` refuses to publish a baseline taken on 9p unless
 explicitly overridden, for the same reason.
+
+## What has been measured so far
+
+Placement, over 50,000 keys
+([`placement.json`](bench/results/2026-09-20-yutongzhao/placement.json),
+regenerate with `make placement-report`):
+
+| Property | Measured | Bound |
+|---|---|---|
+| Load imbalance, 3 nodes (max/mean) | 1.0127 | ≤ 1.10 |
+| Load imbalance, 8 nodes (max/mean) | 1.0208 | ≤ 1.10 |
+| Keys moved when a 4th node joins | 25.26% | theory 25% |
+| Keys moved when a node is removed | exactly that node's keys | — |
+
+Failure behaviour, three real containers
+([`phase2-docker-node-loss.json`](bench/results/2026-09-20-yutongzhao/phase2-docker-node-loss.json)):
+1,000 objects written with two copies each, one container stopped, then **671
+objects that the stopped container held were read through another node and all
+671 matched their SHA-256 — 0 corrupted**. After restart the container served
+all 671 of its own copies from its named volume.
+
+Throughput and latency are Phase 4; there are no numbers for them here yet
+because there are no raw results for them yet.
 
 ## Measurement
 

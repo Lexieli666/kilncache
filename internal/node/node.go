@@ -1,9 +1,9 @@
 // Package node assembles a complete KilnCache node from its subsystems.
 //
 // It exists so that there is exactly one definition of what a node *is*.
-// Without it, cmd/kilncache would wire the store, cluster and repair worker
+// Without it, cmd/kilncache would wire the store, ring and repair worker
 // together one way and the integration tests would wire them together another,
-// and the tests would be testing an arrangement that is not shipped.
+// and the tests would be exercising an arrangement that is not shipped.
 package node
 
 import (
@@ -13,6 +13,7 @@ import (
 	"net/http"
 
 	"github.com/Lexieli666/kilncache/internal/buildinfo"
+	"github.com/Lexieli666/kilncache/internal/cluster"
 	"github.com/Lexieli666/kilncache/internal/config"
 	"github.com/Lexieli666/kilncache/internal/httpapi"
 	"github.com/Lexieli666/kilncache/internal/storage"
@@ -26,18 +27,32 @@ type Node struct {
 	health *httpapi.Health
 
 	store   *storage.Store
+	ring    *cluster.Ring
+	peers   cluster.PeerClient
+	coord   *cluster.Coordinator
 	handler http.Handler
 	server  *httpapi.Server
 }
 
-// New builds a node: opens storage, wires handlers, and binds the listener.
+// Options allows tests to substitute a peer client that can be made to fail,
+// hang, or truncate on demand. Production passes nothing and gets the HTTP one.
+type Options struct {
+	PeerClient cluster.PeerClient
+}
+
+// New builds a node: opens storage, builds the ring, wires handlers, and binds
+// the listener.
 //
 // Readiness is announced by Run, not here. Opening the store reconciles the
 // temp directory against a possible crash, and a node that advertised itself
 // before that finished would be offering a cache whose disk it has not checked.
-func New(ctx context.Context, cfg config.Config, log *slog.Logger) (*Node, error) {
+func New(ctx context.Context, cfg config.Config, log *slog.Logger, opts ...Options) (*Node, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("config: %w", err)
+	}
+	var opt Options
+	if len(opts) > 0 {
+		opt = opts[0]
 	}
 
 	health := httpapi.NewHealth()
@@ -53,14 +68,43 @@ func New(ctx context.Context, cfg config.Config, log *slog.Logger) (*Node, error
 		return nil, fmt.Errorf("open store: %w", err)
 	}
 
-	log.Info("object store open",
+	n := &Node{cfg: cfg, log: log, health: health, store: store}
+
+	ring, err := cluster.New(cfg.Peers, cfg.NodeName)
+	if err != nil {
+		_ = n.closeAll()
+		return nil, fmt.Errorf("build ring: %w", err)
+	}
+	n.ring = ring
+
+	peers := opt.PeerClient
+	if peers == nil {
+		peers = cluster.NewHTTPPeerClient(cfg.NodeName, cfg.PeerTimeout)
+	}
+	n.peers = peers
+
+	coord, err := cluster.NewCoordinator(cluster.CoordinatorOptions{
+		Ring:         ring,
+		Local:        store,
+		Peers:        peers,
+		ReplicaCount: cfg.ReplicaCount,
+		Logger:       log,
+	})
+	if err != nil {
+		_ = n.closeAll()
+		return nil, fmt.Errorf("build coordinator: %w", err)
+	}
+	n.coord = coord
+
+	log.Info("node assembled",
 		slog.String("root", store.Root()),
 		slog.Bool("verify_reads", cfg.VerifyReads),
 		slog.Bool("dir_fsync_supported", store.DirSyncSupported()),
 		slog.Int64("max_object_bytes", cfg.MaxObjectBytes),
+		slog.Int("cluster_size", ring.Size()),
+		slog.Int("replica_count", coord.ReplicaCount()),
+		slog.Any("members", config.PeerNames(cfg.Peers)),
 	)
-
-	n := &Node{cfg: cfg, log: log, health: health, store: store}
 
 	router := httpapi.NewRouter(httpapi.RouterOptions{
 		Node:    cfg.NodeName,
@@ -68,13 +112,13 @@ func New(ctx context.Context, cfg config.Config, log *slog.Logger) (*Node, error
 		Health:  health,
 		Log:     log,
 		DevMode: cfg.DevMode,
-		Cache:   httpapi.NewCacheHandler(store, log, cfg.MaxObjectBytes),
+		Cache:   httpapi.NewCacheHandler(coord, log, cfg.NodeName, cfg.MaxObjectBytes),
 	})
 	n.handler = router
 
 	srv, err := httpapi.NewServer(cfg, log, health, router)
 	if err != nil {
-		_ = n.closeStore()
+		_ = n.closeAll()
 		return nil, err
 	}
 	n.server = srv
@@ -92,9 +136,14 @@ func (n *Node) BaseURL() string { return "http://" + n.Addr() }
 // Name returns the node's cluster identity.
 func (n *Node) Name() string { return n.cfg.NodeName }
 
-// Store exposes the object store for tests and for subsystems that need direct
-// access. Production code goes through the HTTP handler.
+// Store exposes the local object store, for tests and for the repair worker.
 func (n *Node) Store() *storage.Store { return n.store }
+
+// Coordinator exposes the placement and replication layer.
+func (n *Node) Coordinator() *cluster.Coordinator { return n.coord }
+
+// Ring exposes the placement function.
+func (n *Node) Ring() *cluster.Ring { return n.ring }
 
 // Health exposes the readiness signal.
 func (n *Node) Health() *httpapi.Health { return n.health }
@@ -109,9 +158,9 @@ func (n *Node) Run(ctx context.Context) error {
 	return n.server.Run(ctx)
 }
 
-// Close releases resources in reverse dependency order: stop accepting, then
-// close storage. Reversing that would let a request in flight touch a store
-// that has already been closed.
+// Close releases resources in reverse dependency order: stop accepting, drop
+// peer connections, then close storage. Reversing that would let a request in
+// flight touch a store that has already been closed.
 func (n *Node) Close() error {
 	var firstErr error
 	if n.server != nil {
@@ -119,15 +168,21 @@ func (n *Node) Close() error {
 			firstErr = err
 		}
 	}
-	if err := n.closeStore(); err != nil && firstErr == nil {
+	if err := n.closeAll(); err != nil && firstErr == nil {
 		firstErr = err
 	}
 	return firstErr
 }
 
-func (n *Node) closeStore() error {
+func (n *Node) closeAll() error {
+	if n.peers != nil {
+		n.peers.Close()
+		n.peers = nil
+	}
 	if n.store == nil {
 		return nil
 	}
-	return n.store.Close()
+	err := n.store.Close()
+	n.store = nil
+	return err
 }

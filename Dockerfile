@@ -22,15 +22,24 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
       -ldflags "-s -w -X github.com/Lexieli666/kilncache/internal/buildinfo.Version=${VERSION} -X github.com/Lexieli666/kilncache/internal/buildinfo.Commit=${COMMIT}" \
       -o /out/kilncache ./cmd/kilncache
 
+# An empty data directory, owned by the runtime user.
+#
+# This has to exist in the image, not just as a volume mount point. When Docker
+# initialises a fresh named volume it copies the image's contents *and
+# ownership* at that path; if the path does not exist in the image, the volume
+# is created owned by root, and the nonroot user the container runs as cannot
+# create anything in it. Distroless has no shell and no mkdir, so there is no
+# way to fix it at startup -- the directory has to be right before the image is
+# built. See docs/bugs.md.
+RUN mkdir -p /out/data
+
 # Runtime stage. Distroless static has no shell and no package manager, so a
 # compromised cache node has nothing to pivot with.
 FROM gcr.io/distroless/static-debian12:nonroot
 
 COPY --from=build /out/kilncache /usr/local/bin/kilncache
+COPY --from=build --chown=65532:65532 /out/data /var/lib/kilncache
 
-# The data directory is a volume mount point. It is created by the entrypoint at
-# runtime rather than baked in, because distroless has no mkdir and the node
-# creates its own tree on startup.
 ENV KILNCACHE_DATA_DIR=/var/lib/kilncache \
     KILNCACHE_LISTEN=:8080 \
     KILNCACHE_LOG_FORMAT=json

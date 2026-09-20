@@ -62,8 +62,20 @@ test-short: ## Skip slow tests
 	$(GO) test -short $(GOTESTFLAGS) ./...
 
 .PHONY: cover
-cover: ## Coverage profile and summary
+cover: ## Coverage from unit and property tests only
 	$(GO) test -coverprofile=coverage.out -covermode=atomic ./...
+	$(GO) tool cover -func=coverage.out | tail -1
+
+# The published coverage number.
+#
+# `go test -cover ./...` attributes coverage only to the package under test, so
+# it scores internal/node and internal/protocol at zero even though the
+# integration suite drives every line of them. -coverpkg across the whole module,
+# with the integration tag on, measures what is actually exercised. The narrower
+# `cover` target stays because it is the fast one for the edit loop.
+.PHONY: cover-all
+cover-all: ## Coverage across unit, property and integration tests (the published figure)
+	$(GO) test -tags=integration -coverpkg=./internal/...,./cmd/... 	  -coverprofile=coverage.out -covermode=atomic -timeout=30m 	  ./internal/... ./cmd/... ./tests/integration/
 	$(GO) tool cover -func=coverage.out | tail -1
 
 .PHONY: cover-html
@@ -122,3 +134,7 @@ tools: ## Report the versions of every external tool this repo uses
 .PHONY: check-numbers
 check-numbers: ## Fail if any published number lacks a raw result file (CONTRIBUTING rule 1)
 	scripts/check-numbers.sh
+
+.PHONY: placement-report
+placement-report: ## Measure placement balance and key movement into bench/results/
+	KILNCACHE_RESULTS_DIR=$(RESULTS_DIR) $(GO) test -run TestWritePlacementReport -v -count=1 ./internal/cluster/

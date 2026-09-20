@@ -5,18 +5,18 @@ import (
 	"net/http"
 	"net/http/pprof"
 	"strings"
+
+	"github.com/Lexieli666/kilncache/internal/protocol"
 )
 
-// Protocol headers. HeaderForwardedBy carries the name of the node that
-// forwarded a request; a node that sees its own name, or any value at all on an
-// internal path, refuses to forward again. That single header is what keeps a
-// three-node cluster from turning one client request into an infinite loop when
-// two nodes disagree about placement.
+// Header names are defined once, in internal/protocol, because both the front
+// door and the peer client have to agree on them exactly. Aliases keep this
+// package's call sites readable.
 const (
-	HeaderForwardedBy = "X-Kilncache-Forwarded-By"
-	HeaderNode        = "X-Kilncache-Node"
-	HeaderSource      = "X-Kilncache-Source"
-	HeaderReplicaOf   = "X-Kilncache-Replica-Of"
+	HeaderForwardedBy = protocol.HeaderForwardedBy
+	HeaderNode        = protocol.HeaderNode
+	HeaderSource      = protocol.HeaderSource
+	HeaderHop         = protocol.HeaderHop
 )
 
 // RouterOptions collects everything the router needs to wire endpoints.

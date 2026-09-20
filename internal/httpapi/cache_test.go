@@ -48,7 +48,7 @@ func newCacheFixture(t *testing.T, maxObject int64) *cacheFixture {
 		Version: "test",
 		Health:  health,
 		Log:     log,
-		Cache:   NewCacheHandler(store, log, maxObject),
+		Cache:   NewCacheHandler(&storeBackend{store: store}, log, "node-a", maxObject),
 	})
 	return &cacheFixture{handler: h, store: store}
 }

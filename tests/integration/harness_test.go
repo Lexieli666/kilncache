@@ -90,15 +90,116 @@ func filesystemOf(path string) string {
 	return fields[1]
 }
 
-// startNode brings up a node on an ephemeral port and registers its shutdown.
-func startNode(t *testing.T, name string, mutate func(*config.Config)) *testNode {
-	t.Helper()
+// localCluster is a set of in-process nodes that know about each other.
+//
+// Named to leave "cluster" free for the internal/cluster package, which the
+// Docker tier imports to compute the same placement the nodes compute.
+type localCluster struct {
+	t     *testing.T
+	Nodes []*testNode
+}
 
-	dir := filepath.Join(dataRoot(t), name)
+// startCluster brings up n nodes with a shared peer list.
+//
+// The peer list has to be complete before any node starts, and a node's URL is
+// only known once it has bound a port. That is solved by binding listeners
+// first and starting servers second: each node is constructed (which binds),
+// then every node is told the full membership, then they all begin serving.
+// Guessing ports in advance would make the suite flaky on a busy machine.
+func startCluster(t *testing.T, n int, mutate func(*config.Config)) *localCluster {
+	t.Helper()
+	if n < 1 {
+		t.Fatalf("cluster size %d", n)
+	}
+	root := dataRoot(t)
+
+	// Reserve a port per node by binding and immediately releasing. There is a
+	// race here in principle; in practice the window is microseconds and the
+	// alternative -- a two-phase node constructor -- is a lot of production
+	// complexity to serve a test.
+	names := make([]string, n)
+	ports := make([]int, n)
+	for i := 0; i < n; i++ {
+		names[i] = fmt.Sprintf("node-%c", 'a'+i)
+		ports[i] = reservePort(t)
+	}
+	peerList := make([]config.Peer, n)
+	for i := range names {
+		peerList[i] = config.Peer{Name: names[i], URL: fmt.Sprintf("http://127.0.0.1:%d", ports[i])}
+	}
+
+	c := &localCluster{t: t}
+	for i := 0; i < n; i++ {
+		i := i
+		tn := newTestNode(t, names[i], filepath.Join(root, names[i]), func(cfg *config.Config) {
+			cfg.ListenAddr = fmt.Sprintf("127.0.0.1:%d", ports[i])
+			cfg.Peers = peerList
+			cfg.ReplicaCount = 2
+			if mutate != nil {
+				mutate(cfg)
+			}
+		})
+		tn.start()
+		t.Cleanup(tn.Stop)
+		c.Nodes = append(c.Nodes, tn)
+	}
+	return c
+}
+
+// reservePort binds port 0, reads the port back, and releases it.
+func reservePort(t *testing.T) int {
+	t.Helper()
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("reserve port: %v", err)
+	}
+	port := l.Addr().(*net.TCPAddr).Port
+	if err := l.Close(); err != nil {
+		t.Fatalf("release port: %v", err)
+	}
+	return port
+}
+
+// Node returns the node with the given name.
+func (c *localCluster) Node(name string) *testNode {
+	c.t.Helper()
+	for _, n := range c.Nodes {
+		if n.Name == name {
+			return n
+		}
+	}
+	c.t.Fatalf("no node named %s", name)
+	return nil
+}
+
+// URLs returns every node's base URL.
+func (c *localCluster) URLs() []string {
+	out := make([]string, 0, len(c.Nodes))
+	for _, n := range c.Nodes {
+		out = append(out, n.URL())
+	}
+	return out
+}
+
+// Any returns a node chosen by index, for spreading traffic across front doors.
+func (c *localCluster) Any(i int) *testNode { return c.Nodes[i%len(c.Nodes)] }
+
+// HoldersOf returns the names of the nodes that should hold key.
+func (c *localCluster) HoldersOf(key string, rf int) []string {
+	r := c.Nodes[0].Node.Ring()
+	out := []string{}
+	for _, m := range r.Holders(key, rf) {
+		out = append(out, m.Name)
+	}
+	return out
+}
+
+// newTestNode builds a testNode without starting it.
+func newTestNode(t *testing.T, name, dir string, mutate func(*config.Config)) *testNode {
+	t.Helper()
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatalf("create data dir: %v", err)
 	}
-
 	cfg := config.Defaults()
 	cfg.NodeName = name
 	cfg.ListenAddr = "127.0.0.1:0"
@@ -106,12 +207,19 @@ func startNode(t *testing.T, name string, mutate func(*config.Config)) *testNode
 	cfg.Peers = []config.Peer{{Name: name, URL: "http://127.0.0.1:0"}}
 	cfg.ReplicaCount = 1
 	cfg.ShutdownTimeout = 5 * time.Second
+	cfg.PeerTimeout = 10 * time.Second
 	cfg.LogLevel = "debug"
 	if mutate != nil {
 		mutate(&cfg)
 	}
+	return &testNode{t: t, Name: name, DataDir: dir, cfg: cfg}
+}
 
-	tn := &testNode{t: t, Name: name, DataDir: dir, cfg: cfg}
+// startNode brings up a single standalone node on an ephemeral port.
+func startNode(t *testing.T, name string, mutate func(*config.Config)) *testNode {
+	t.Helper()
+
+	tn := newTestNode(t, name, filepath.Join(dataRoot(t), name), mutate)
 	tn.start()
 	t.Cleanup(tn.Stop)
 	return tn
@@ -239,6 +347,17 @@ func head(t *testing.T, base, path string) *http.Response {
 	defer resp.Body.Close()
 	_, _ = io.Copy(io.Discard, resp.Body)
 	return resp
+}
+
+// readBody reads and closes a response body.
+func readBody(t *testing.T, resp *http.Response) []byte {
+	t.Helper()
+	defer resp.Body.Close()
+	b, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read body: %v", err)
+	}
+	return b
 }
 
 func sha256hex(b []byte) string {

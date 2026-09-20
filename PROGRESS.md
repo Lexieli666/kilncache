@@ -6,7 +6,7 @@ context loss and resume from "Next".
 - **Repository**: `Lexieli666/kilncache`
 - **Working directory**: `/mnt/d/2026 LYC Job Hunting/SDE-xiaozhao/A. General SWE and Product Engineering/Projects Impl/kilncache`
 - **Spec**: `../../Project Specs/Project_1_KilnCache_Spec.md`
-- **Current phase**: Phase 1 complete; Phase 2 next
+- **Current phase**: Phase 2 complete; Phase 3 next
 
 ## Environment
 
@@ -130,11 +130,65 @@ Linux 6.6.114.1-microsoft-standard-WSL2, WSL2.
   up, the server does not learn until its next read fails, so the assertion was
   racing the server. It now waits with a deadline, and the comment says why.
 
+**Next**: Phase 2 (done, below).
+
+## Phase 2 — three-node placement and replication
+
+**Done**
+
+- `internal/cluster/ring.go`: rendezvous (highest-random-weight) placement.
+  Member seeds from SHA-256 of the name, key seed taken straight from the
+  already-uniform digest, SplitMix64 finalizer, ties broken by name, members
+  sorted so peer-list order cannot change placement.
+- `internal/protocol`: the node-to-node contract — headers, the `Hop` state
+  machine that bounds forwarding, `Backend`, `ObjectReader`, and the
+  insufficient-replicas sentinel. It exists so the dependency between
+  `internal/httpapi` and `internal/cluster` points one way.
+- `internal/cluster/client.go`: peer HTTP client with a real connection pool
+  (Go's default of 2 idle conns/host would make every replicated PUT pay a
+  handshake), per-hop deadlines that cover establishing a response rather than
+  draining a body, and errors that distinguish a dead peer from a rejected
+  object.
+- `internal/cluster/coordinator.go`: the `Backend`. Local write first, then
+  concurrent fan-out to the other holders; a non-owner front door proxies and
+  stores nothing; reads try local, then holders, then the rest; a partition is
+  reported as 503, never as a cache miss.
+- Tests: a fault-injecting fake peer (down / rejecting / slow / *acknowledges
+  but does not persist*), 5 rapid property tests, and the three-node integration
+  tier plus a Docker tier that stops and restarts real containers.
+
+**Measured** (raw files in `bench/results/2026-09-20-yutongzhao/`):
+
+| Claim | Measured | Target | Source |
+|---|---|---|---|
+| Placement imbalance, 3 nodes, 50,000 keys | 1.0127 | ≤ 1.10 | `placement.json` |
+| Placement imbalance, 8 nodes, 50,000 keys | 1.0208 | ≤ 1.10 | `placement.json` |
+| Keys moved adding node 4 of 4 | 25.26% | 20–35% (theory 25%) | `placement.json` |
+| Corrupted reads, Docker node-loss run | 0 of 671 checked | 0 | `phase2-docker-node-loss.json` |
+| Writes involving a dead holder that returned 503 | 79 of 79 | all | `phase2-verify.md` |
+
+**Failed / worked around**
+
+- The Docker tier immediately found a real bug: the distroless `nonroot` user
+  could not create the store directory, because `/var/lib/kilncache` existed
+  only as a mount point and Docker initialises a fresh named volume owned by
+  root when the path is absent from the image. Fixed by creating the directory
+  in the build stage and `COPY --chown=65532:65532`. Phase 0's compose check had
+  passed on a node that could not have served a single object, because Phase 0
+  had no storage layer. Recorded as bug 5 in `docs/bugs.md`.
+- Two coordinator fallback tests were written against keys the test node
+  happened to hold, so the fallback path never ran. Fixed to select keys the
+  front door provably does not hold.
+- `go test -cover ./...` scored `internal/node` at 0% because its coverage comes
+  from another package's tests. Added `make cover-all` (`-coverpkg` across the
+  module with the integration tag on), which is now the published figure; the
+  narrow `cover` target stays for the edit loop.
+
 **Next**
 
-- Phase 2: static three-node membership, rendezvous hashing, synchronous
-  two-copy replication before ACK, replica fallback on GET, forwarding-loop
-  prevention, and the property tests over ≥50,000 keys.
+- Phase 3: SQLite (WAL) metadata index, quota with high/low water marks,
+  size-weighted access-aware eviction, startup reconciliation that never marks a
+  missing file valid, a bounded repair worker pool, and `cmd/chaos`.
 
 ## Targets (from the spec, section 6 — not yet measured)
 

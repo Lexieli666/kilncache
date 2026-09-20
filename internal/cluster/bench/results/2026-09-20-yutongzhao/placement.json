@@ -1,0 +1,72 @@
+{
+  "kind": "placement",
+  "generated_at": "2026-09-20T06:47:47.765722002Z",
+  "keys": 50000,
+  "key_kind": "lowercase hex SHA-256 of \"object-\u003ci\u003e\" for i in [0,50000)",
+  "balance": [
+    {
+      "cluster_size": 3,
+      "replica_count": 2,
+      "primary_imbalance_max_over_mean": 1.01268,
+      "holder_imbalance_max_over_mean": 1.00761,
+      "min_primary_load": 16428,
+      "max_primary_load": 16878
+    },
+    {
+      "cluster_size": 4,
+      "replica_count": 2,
+      "primary_imbalance_max_over_mean": 1.01024,
+      "holder_imbalance_max_over_mean": 1.00864,
+      "min_primary_load": 12234,
+      "max_primary_load": 12628
+    },
+    {
+      "cluster_size": 5,
+      "replica_count": 2,
+      "primary_imbalance_max_over_mean": 1.0162,
+      "holder_imbalance_max_over_mean": 1.0062,
+      "min_primary_load": 9808,
+      "max_primary_load": 10162
+    },
+    {
+      "cluster_size": 8,
+      "replica_count": 2,
+      "primary_imbalance_max_over_mean": 1.0208,
+      "holder_imbalance_max_over_mean": 1.01416,
+      "min_primary_load": 6161,
+      "max_primary_load": 6380
+    }
+  ],
+  "movement": [
+    {
+      "cluster_size_before": 3,
+      "cluster_size_after": 4,
+      "replica_count": 2,
+      "primaries_moved": 12628,
+      "primary_moved_fraction": 0.25256,
+      "theoretical_fraction": 0.25,
+      "holder_sets_changed": 25062,
+      "holder_set_changed_fraction": 0.50124
+    },
+    {
+      "cluster_size_before": 4,
+      "cluster_size_after": 5,
+      "replica_count": 2,
+      "primaries_moved": 9808,
+      "primary_moved_fraction": 0.19616,
+      "theoretical_fraction": 0.2,
+      "holder_sets_changed": 20033,
+      "holder_set_changed_fraction": 0.40066
+    },
+    {
+      "cluster_size_before": 5,
+      "cluster_size_after": 6,
+      "replica_count": 2,
+      "primaries_moved": 8220,
+      "primary_moved_fraction": 0.1644,
+      "theoretical_fraction": 0.16666666666666666,
+      "holder_sets_changed": 16640,
+      "holder_set_changed_fraction": 0.3328
+    }
+  ]
+}
