@@ -4,6 +4,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/pprof"
+	"strings"
 )
 
 // Protocol headers. HeaderForwardedBy carries the name of the node that
@@ -41,15 +42,6 @@ func NewRouter(opts RouterOptions) http.Handler {
 	mux.HandleFunc("GET /healthz", opts.Health.HealthzHandler(opts.Node, opts.Version))
 	mux.HandleFunc("GET /readyz", opts.Health.ReadyzHandler(opts.Node, opts.Version))
 
-	if opts.Cache != nil {
-		mux.Handle("/cas/", opts.Cache)
-		mux.Handle("/ac/", opts.Cache)
-		// Bazel's HTTP cache has historically been configured with a URL
-		// prefix; support the bare /cache/ prefix Bazel uses for the combined
-		// layout so that --remote_cache=http://host:8080 works unmodified.
-		mux.Handle("/cache/", opts.Cache)
-	}
-
 	if opts.Metrics != nil {
 		mux.Handle("GET /metrics", opts.Metrics)
 	}
@@ -80,6 +72,20 @@ func NewRouter(opts RouterOptions) http.Handler {
 	})
 
 	var h http.Handler = mux
+
+	// Cache paths are routed ahead of the mux rather than registered on it.
+	//
+	// ServeMux path-cleans before matching, so "/cas/../../etc/passwd" becomes
+	// a 301 redirect to "/etc/passwd" and "/cas" becomes a 301 to "/cas/".
+	// Redirects are the correct general behaviour, and the wrong behaviour
+	// here: Bazel treats any non-404 failure from the cache as a reason to
+	// disable the remote cache for the rest of the invocation, so a redirect on
+	// a garbled key costs a whole build its cache. Routing the prefix ourselves
+	// means every malformed cache path is answered as a plain miss.
+	if opts.Cache != nil {
+		h = routeCache(opts.Cache, h)
+	}
+
 	h = nodeHeader(opts.Node, h)
 	h = AccessLog(opts.Log, h)
 	h = Recover(opts.Log, h)
@@ -94,4 +100,31 @@ func nodeHeader(node string, next http.Handler) http.Handler {
 		w.Header().Set(HeaderNode, node)
 		next.ServeHTTP(w, r)
 	})
+}
+
+// routeCache dispatches anything under the cache prefixes to the cache handler,
+// without ServeMux's path cleaning. Bazel's HTTP cache is conventionally
+// mounted at the root, and some configurations add a /cache/ prefix; both
+// spellings address the same objects.
+func routeCache(cache, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if isCachePath(r.URL.Path) {
+			cache.ServeHTTP(w, r)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func isCachePath(p string) bool {
+	s := strings.TrimPrefix(p, "/")
+	s = strings.TrimPrefix(s, "cache/")
+	switch {
+	case s == "cas", s == "ac":
+		return true
+	case strings.HasPrefix(s, "cas/"), strings.HasPrefix(s, "ac/"):
+		return true
+	default:
+		return false
+	}
 }

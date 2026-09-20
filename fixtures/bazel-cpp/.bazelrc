@@ -1,0 +1,22 @@
+# Keep the output base on a local filesystem. This workspace may live on a
+# Windows drive mounted into WSL, where Bazel's symlink and locking assumptions
+# are both slow and unreliable.
+startup --output_user_root=/home/yzhao/.cache/bazel
+
+# Deterministic, comparable builds.
+build --incompatible_strict_action_env
+build --experimental_convenience_symlinks=ignore
+common --enable_bzlmod
+
+# C++ settings chosen so that compilation dominates and is reproducible.
+build --cxxopt=-std=c++17
+build --features=-supports_dynamic_linker
+
+# Remote cache defaults. Override --remote_cache on the command line.
+build:remote --remote_upload_local_results=true
+build:remote --remote_timeout=120s
+build:remote --experimental_remote_cache_async=false
+
+# Fail loudly rather than silently falling back to local-only, so a benchmark
+# run cannot quietly measure a build with no cache at all.
+build:remote --remote_local_fallback=false

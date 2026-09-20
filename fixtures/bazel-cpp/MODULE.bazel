@@ -1,0 +1,9 @@
+# Bzlmod module for the KilnCache benchmark fixture.
+#
+# Deliberately dependency-free: the point of this workspace is to compile a
+# known quantity of C++, and every external dependency would add a download to
+# the measured build and a version to drift.
+module(
+    name = "kilncache_bench",
+    version = "1.0",
+)

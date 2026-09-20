@@ -63,6 +63,13 @@ type Config struct {
 
 	// MaxObjectBytes rejects absurd uploads before they consume the disk.
 	MaxObjectBytes int64 `json:"max_object_bytes"`
+
+	// VerifyReads re-hashes CAS objects as they are served. It costs a SHA-256
+	// pass over every byte read and blocks the kernel's sendfile path, so it is
+	// a measured trade-off rather than a free safety net; docs/perf-notes.md
+	// carries both numbers. Default on, because a cache that returns wrong
+	// bytes quickly is worse than one that returns right bytes slowly.
+	VerifyReads bool `json:"verify_reads"`
 }
 
 // Defaults returns a Config with every field set to its documented default.
@@ -89,6 +96,7 @@ func Defaults() Config {
 		LogFormat:         "json",
 		DevMode:           false,
 		MaxObjectBytes:    4 << 30, // 4 GiB
+		VerifyReads:       true,
 	}
 }
 

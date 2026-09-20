@@ -6,7 +6,7 @@ context loss and resume from "Next".
 - **Repository**: `Lexieli666/kilncache`
 - **Working directory**: `/mnt/d/2026 LYC Job Hunting/SDE-xiaozhao/A. General SWE and Product Engineering/Projects Impl/kilncache`
 - **Spec**: `../../Project Specs/Project_1_KilnCache_Spec.md`
-- **Current phase**: Phase 0 (Kickoff / scaffold)
+- **Current phase**: Phase 1 complete; Phase 2 next
 
 ## Environment
 
@@ -75,11 +75,66 @@ Linux 6.6.114.1-microsoft-standard-WSL2, WSL2.
   `fio --enghelp` and uses `io_uring`; the engine used is recorded in the result
   file so the number is interpretable.
 
+**Next**: Phase 1 (done, below).
+
+## Phase 1 — correct single-node cache
+
+**Done**
+
+- `internal/storage`: sharded object tree (`<ns>/<xx>/<yy>/<key>`, two hex-byte
+  levels), streaming writes through a fixed 256 KiB pooled buffer, SHA-256
+  verification on ingest, publication by fsync → rename → directory fsync,
+  crash sweep of partial uploads at startup, idempotent CAS writes, `Walk` for
+  later reconciliation, and always-on counters.
+- `internal/httpapi`: `GET`/`HEAD`/`PUT`/`POST` on `/cas/{sha256}` and
+  `/ac/{sha256}`, plus the `/cache/` prefix. Cache routes are matched ahead of
+  `ServeMux` because its path-cleaning redirects would turn a garbled key into a
+  301, and Bazel disables the remote cache for a whole invocation on any
+  non-404 failure.
+- `internal/node`: one definition of what a node is, shared by `cmd/kilncache`
+  and the integration tests, so the tests exercise the arrangement that ships.
+- `fixtures/bazel-cpp`: generator producing 300 targets (280 `cc_library` in 8
+  layers + 20 `cc_binary`) with deterministic sources and enough compile ballast
+  that the build measures compilation rather than Bazel's startup.
+- Docs: ADR-0003 (durability, including what the tests do *not* prove),
+  `docs/protocol.md` (what Bazel actually expects, and what each status code
+  costs a build).
+- `scripts/localnode.sh` (PID-file node manager), `scripts/bazel-outputs-digest.sh`,
+  `scripts/check-numbers.sh` (now enforced in CI).
+
+**Verified** — raw output in `bench/results/2026-09-20-yutongzhao/`:
+
+- `phase1-verify.md`: `go test`, `go test -race`, `go vet`, `golangci-lint`, the
+  11-test integration suite (also under `-race`), 84 unit/property tests,
+  70.4% total line coverage, and `check-numbers.sh`.
+- `phase1-bazel-e2e.md`: a real Bazel build of the fixture against KilnCache,
+  `bazel clean --expunge`, and a rebuild served entirely from the cache —
+  600/600 remote cache hits, zero compiler processes, and all 320 build outputs
+  byte-for-byte identical to the locally-compiled ones.
+
+**Failed / worked around**
+
+- The Bazel fixture as first generated built in ~7 s, most of it Bazel's own
+  loading and analysis. Measuring a cache against that would have measured
+  Bazel's startup, so the generator now emits template-instantiation ballast per
+  translation unit; the cold build is ~24 s with object files of a realistic
+  size.
+- `textwrap.dedent` mangled the generated `BUILD.bazel` (an interpolated
+  dependency list brings its own shallower indent, so the common prefix shrinks
+  and everything else comes out under-indented). Replaced with explicit string
+  construction.
+- `pkill -f kilncache` kills the shell that runs it, because `-f` matches the
+  caller's own command line. Replaced by `scripts/localnode.sh` with PID files.
+- The first integration test asserted synchronously that a severed upload had
+  been cleaned up. That was a test bug, not a product bug: when the client hangs
+  up, the server does not learn until its next read fails, so the assertion was
+  racing the server. It now waits with a deadline, and the comment says why.
+
 **Next**
 
-- Phase 1: the single-node cache — CAS/AC endpoints, streaming writes with
-  bounded memory, digest verification, atomic publication, sharded tree, the
-  Bazel C++ fixture, ADR-0003 on durability.
+- Phase 2: static three-node membership, rendezvous hashing, synchronous
+  two-copy replication before ACK, replica fallback on GET, forwarding-loop
+  prevention, and the property tests over ≥50,000 keys.
 
 ## Targets (from the spec, section 6 — not yet measured)
 

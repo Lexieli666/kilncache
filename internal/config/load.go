@@ -46,6 +46,7 @@ func Load(args []string, output io.Writer) (Config, error) {
 	fs.StringVar(&cfg.LogLevel, "log-level", cfg.LogLevel, "debug, info, warn or error")
 	fs.StringVar(&cfg.LogFormat, "log-format", cfg.LogFormat, "json or text")
 	fs.BoolVar(&cfg.DevMode, "dev", cfg.DevMode, "enable /debug/pprof; never enable on a shared host")
+	fs.BoolVar(&cfg.VerifyReads, "verify-reads", cfg.VerifyReads, "re-hash CAS objects while serving them; costs throughput, catches local corruption")
 
 	if err := fs.Parse(args); err != nil {
 		return Config{}, err
@@ -161,6 +162,15 @@ func Load(args []string, output io.Writer) (Config, error) {
 				return Config{}, fmt.Errorf("KILNCACHE_DEV: %w", err)
 			}
 			cfg.DevMode = b
+		}
+	}
+	if !set["verify-reads"] {
+		if v, ok := Env("VERIFY_READS"); ok {
+			b, err := strconv.ParseBool(v)
+			if err != nil {
+				return Config{}, fmt.Errorf("KILNCACHE_VERIFY_READS: %w", err)
+			}
+			cfg.VerifyReads = b
 		}
 	}
 

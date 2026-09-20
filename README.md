@@ -8,11 +8,14 @@ cache protocol. Three nodes, content-addressed objects, rendezvous placement,
 two-copy replication before acknowledgement, bounded disk with access-aware
 eviction, and automatic repair of missing replicas.
 
-> **Status: Phase 0 (scaffold).** The node serves `/healthz` and `/readyz`, the
-> toolchain and CI are in place, and a device baseline has been measured. The
-> cache protocol itself lands in Phase 1. Every section below that describes
-> unimplemented behaviour says so. No performance number appears in this file
-> until it has a raw result file under `bench/results/`.
+> **Status: Phase 1 complete.** A single node serves the Bazel HTTP cache
+> protocol end to end: Bazel builds the 300-target C++ fixture against it,
+> `bazel clean --expunge` wipes the local cache, and the rebuild is served
+> entirely from KilnCache with byte-identical outputs
+> ([raw evidence](bench/results/2026-09-20-yutongzhao/phase1-bazel-e2e.md)).
+> Placement, replication, quota and repair land in Phases 2 and 3; every section
+> below that describes unimplemented behaviour says so. No performance number
+> appears in this file until it has a raw result file under `bench/results/`.
 
 ## The problem
 
@@ -76,7 +79,8 @@ Any node is a valid front door. It serves the object if it holds it, otherwise
 it forwards one hop to a node that should. A forwarding header makes loops
 impossible.
 
-Details: [docs/architecture.md](docs/architecture.md) *(Phase 5)* ·
+Details: [docs/protocol.md](docs/protocol.md) ·
+[docs/architecture.md](docs/architecture.md) *(Phase 5)* ·
 [docs/failure-model.md](docs/failure-model.md) *(Phase 5)* ·
 [docs/testing.md](docs/testing.md) · [docs/adr/](docs/adr/)
 
@@ -104,6 +108,23 @@ make build
 
 `make help` lists every target. `make tools` reports which external tools are
 installed and what stops working without each one.
+
+### Try it against a real Bazel build
+
+```bash
+make build
+scripts/gen-bazel-fixture.sh                       # 300 C++ targets, deterministic
+scripts/localnode.sh start solo 18080 --max-bytes=40GiB
+
+cd fixtures/bazel-cpp
+bazel build //... --config=remote --remote_cache=http://127.0.0.1:18080   # populate
+bazel clean --expunge
+bazel build //... --config=remote --remote_cache=http://127.0.0.1:18080   # served from cache
+```
+
+The second build reports `600 remote cache hit` and runs no compiler processes.
+`scripts/bazel-outputs-digest.sh` hashes every artifact so the two builds can be
+compared byte for byte.
 
 ## Development
 
