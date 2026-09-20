@@ -1,0 +1,15 @@
+{
+  "evict_mib_per_sec": 1120.4410318831656,
+  "evict_objects_per_sec": 71708.2260405226,
+  "evicted_bytes": 78643200,
+  "evicted_objects": 4800,
+  "generated_at": "2026-09-20T08:40:24Z",
+  "kind": "eviction-throughput",
+  "low_water_bytes": 19660800,
+  "object_size_bytes": 16384,
+  "objects": 6000,
+  "sweep_seconds": 0.066937927,
+  "usage_after": 19660800,
+  "usage_before": 98304000,
+  "write_objects_per_sec": 22390.75093607893
+}

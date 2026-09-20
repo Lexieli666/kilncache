@@ -6,7 +6,7 @@ context loss and resume from "Next".
 - **Repository**: `Lexieli666/kilncache`
 - **Working directory**: `/mnt/d/2026 LYC Job Hunting/SDE-xiaozhao/A. General SWE and Product Engineering/Projects Impl/kilncache`
 - **Spec**: `../../Project Specs/Project_1_KilnCache_Spec.md`
-- **Current phase**: Phase 2 complete; Phase 3 next
+- **Current phase**: Phase 3 complete; Phase 4 next
 
 ## Environment
 
@@ -184,11 +184,75 @@ Linux 6.6.114.1-microsoft-standard-WSL2, WSL2.
   module with the integration tag on), which is now the published figure; the
   narrow `cover` target stays for the edit loop.
 
+**Next**: Phase 3 (done, below).
+
+## Phase 3 — quota, eviction, restart, repair, chaos
+
+**Done**
+
+- `internal/storage/index.go`: SQLite metadata index in WAL mode, pure-Go driver
+  so the runtime image stays distroless/static. **Separate read and write
+  pools** (one writer, four readers) and **keyset-paginated scans**, both forced
+  by a real starvation bug found in chaos.
+- Access times are batched, not written inline: a cache hit must not cost a
+  database write. 100 touches of one key collapse to one update.
+- `internal/storage/evict.go`: quota with high/low water marks, size-weighted
+  access-aware scoring, a min-heap over a batch of the coldest candidates, and a
+  background sweeper woken by writes — never inline on the write path.
+- `Store.Reconcile`: the disk is authoritative and the index is derived, so an
+  index row with no file cannot survive a restart. This makes "never marks a
+  missing file valid" structural rather than a behaviour to maintain.
+- `internal/repair`: bounded worker pool, audit with a budget and a resumable
+  cursor, backpressure that stops a pass rather than skipping work, and a
+  `HopRepair` role a full node can decline.
+- `internal/metrics` + `/stats` + `/metrics`: Prometheus collectors that read
+  the counters the subsystems already keep, so `/stats` and `/metrics` cannot
+  disagree. (Phase 4 work, pulled forward: the chaos runner needs node counters
+  to tell eviction apart from data loss.)
+- `cmd/chaos`: mixed traffic, scheduled container stops, independent SHA-256
+  bookkeeping, convergence measurement weighted towards genuinely
+  under-replicated objects, and a report that always publishes a sample size
+  next to every absence claim.
+
+**Measured** (raw files in `bench/results/2026-09-20-yutongzhao/`):
+
+| Claim | Measured | Source |
+|---|---|---|
+| Corrupted reads, 10-minute chaos run | 0 of 304,325 reads verified | `chaos-latest.json` |
+| Convergence to 2 replicas after faults | 217 s over 3,000 sampled objects | `chaos-latest.json` |
+| Node stops during the run | 10 | `chaos-latest.json` |
+| Client error rate while degraded | 22.6% (the faults landed) | `chaos-latest.json` |
+| Hot objects surviving 600 cold writes under quota | 10 of 10 | `quota-eviction.json` |
+| Peak usage against the high-water mark | under it, not over | `quota-eviction.json` |
+| Eviction throughput after the fix | 28,338 objects/s (was 190) | `eviction-throughput.json` |
+| Index scan under concurrent writes | 1.51x the idle scan | `index-scan.json` |
+| Tests | 229 unit/property + 40 integration | `phase3-verify.md` |
+| Coverage | 82.7% | `phase3-verify.md` |
+
+**Failed / worked around** — five bugs, all in `docs/bugs.md` (entries 6–10):
+
+- Repair skipped work it could not queue, so convergence scaled with cache size
+  rather than with how much was broken.
+- Repair and eviction fought each other and the quota stopped being enforced —
+  nodes sat at 2.6x their configured quota. Two causes: one shared SQLite
+  connection starving eviction behind the auditor's scan, and no protocol
+  between the two subsystems. Fixed with split pools, paginated scans, and a
+  repair hop a full node declines with 507.
+- Eviction was fsync-bound at 190 objects/s, below ingest. Removing the
+  directory fsync on delete (durability is required for creating an object, not
+  for removing one) and batching index removals made it 185x faster.
+- The chaos runner reported evicted objects as data loss. It now reads each
+  node's `/stats` and attributes them.
+- Every node crash-looped once metrics were added: two series of one metric
+  registered with different help strings. The unit test had used a placeholder
+  help string for both and so held constant the one thing that mattered.
+
 **Next**
 
-- Phase 3: SQLite (WAL) metadata index, quota with high/low water marks,
-  size-weighted access-aware eviction, startup reconciliation that never marks a
-  missing file valid, a bounded repair worker pool, and `cmd/chaos`.
+- Phase 4: the benchmark driver (`cmd/bench`), latency and throughput scenarios
+  at several concurrency levels with ≥5 runs each, CPU and heap profiles, an RSS
+  check that memory does not scale with object size, `tc netem` scripts, and
+  `docs/perf-notes.md` with the profiling wins.
 
 ## Targets (from the spec, section 6 — not yet measured)
 

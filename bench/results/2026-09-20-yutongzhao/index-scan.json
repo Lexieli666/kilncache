@@ -1,0 +1,12 @@
+{
+  "concurrent_writes": 3572,
+  "generated_at": "2026-09-20T08:40:25Z",
+  "journal_mode": "wal",
+  "kind": "index-scan",
+  "note": "The repair auditor scans the whole index while requests write to it. In rollback-journal mode a reader and a writer exclude each other, so this ratio would be a multiple rather than a few percent.",
+  "rows_idle": 20000,
+  "rows_under_write_load": 22158,
+  "scan_idle_ms": 35.98,
+  "scan_under_write_ms": 45.386,
+  "slowdown_ratio": 1.26140988702534
+}

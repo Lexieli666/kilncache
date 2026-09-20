@@ -18,7 +18,15 @@ GOTESTFLAGS ?=
 COMPOSE     := docker compose -f deploy/compose/docker-compose.yml
 HOSTNAME_S  := $(shell hostname -s 2>/dev/null || hostname)
 TODAY       := $(shell date -u +%Y-%m-%d)
-RESULTS_DIR := bench/results/$(TODAY)-$(HOSTNAME_S)
+# Absolute, and quoted at every use.
+#
+# Absolute because `go test` runs with the package directory as its working
+# directory, so a relative results path lands under internal/<pkg>/ instead of
+# the repository root -- silently, and only for the targets that go through a
+# test binary. Quoted because this checkout's path contains spaces, and an
+# unquoted one turns into three arguments.
+REPO_ROOT   := $(shell git rev-parse --show-toplevel 2>/dev/null || pwd)
+RESULTS_DIR := $(REPO_ROOT)/bench/results/$(TODAY)-$(HOSTNAME_S)
 
 .PHONY: help
 help: ## List targets
@@ -84,8 +92,8 @@ cover-html: cover ## Coverage as HTML
 	@echo "wrote coverage.html"
 
 .PHONY: integration
-integration: ## Integration tests (starts real servers; needs Docker for the cluster suite)
-	$(GO) test -tags=integration -timeout=20m ./tests/integration/...
+integration: ## Integration tests (starts real servers; needs Docker for the container suite)
+	$(GO) test -tags=integration -timeout=25m ./tests/integration/... ./cmd/chaos/
 
 .PHONY: compose-up
 compose-up: ## Start the three-node cluster
@@ -101,15 +109,24 @@ compose-logs: ## Follow cluster logs
 
 .PHONY: bench-smoke
 bench-smoke: build ## Quick benchmark run against a locally started cluster
-	$(BIN_DIR)/kilnbench -smoke -out $(RESULTS_DIR)
+	$(BIN_DIR)/bench -smoke -out "$(RESULTS_DIR)"
 
 .PHONY: bench
 bench: build ## Full benchmark matrix (long)
-	$(BIN_DIR)/kilnbench -out $(RESULTS_DIR)
+	$(BIN_DIR)/bench -out "$(RESULTS_DIR)"
 
 .PHONY: chaos
-chaos: build ## Chaos run against the compose cluster
-	$(BIN_DIR)/kilnchaos -duration 10m -out $(RESULTS_DIR)
+chaos: build ## 10-minute chaos run against the compose cluster (needs it running)
+	$(BIN_DIR)/chaos -duration 10m -out $(RESULTS_DIR) 	  -compose-file deploy/compose/docker-compose.yml -compose-project kilncache
+
+.PHONY: chaos-smoke
+chaos-smoke: build ## Short chaos run, for checking the harness itself
+	$(BIN_DIR)/chaos -duration 60s -fault-every 20s -fault-down 8s 	  -converge-wait 60s -out $(RESULTS_DIR) 	  -compose-file deploy/compose/docker-compose.yml -compose-project kilncache
+
+.PHONY: quota-report
+quota-report: ## Measure quota, eviction and index-scan behaviour into bench/results/
+	KILNCACHE_RESULTS_DIR="$(RESULTS_DIR)" $(GO) test -v -count=1 \
+	  -run 'TestWriteQuotaReport|TestIndexScanIsNotBlockedByWrites' ./internal/storage/
 
 .PHONY: device-baseline
 device-baseline: ## fio device baseline into bench/results/
@@ -137,4 +154,4 @@ check-numbers: ## Fail if any published number lacks a raw result file (CONTRIBU
 
 .PHONY: placement-report
 placement-report: ## Measure placement balance and key movement into bench/results/
-	KILNCACHE_RESULTS_DIR=$(RESULTS_DIR) $(GO) test -run TestWritePlacementReport -v -count=1 ./internal/cluster/
+	KILNCACHE_RESULTS_DIR="$(RESULTS_DIR)" $(GO) test -run TestWritePlacementReport -v -count=1 ./internal/cluster/

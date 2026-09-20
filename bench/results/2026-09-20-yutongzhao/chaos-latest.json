@@ -1,0 +1,369 @@
+{
+  "kind": "chaos",
+  "generated_at": "2026-09-20T08:20:57.105376118Z",
+  "config": {
+    "nodes": [
+      "node-a",
+      "node-b",
+      "node-c"
+    ],
+    "duration_seconds": 601.281440292,
+    "workers": 12,
+    "read_ratio": 0.7,
+    "object_min_bytes": 1024,
+    "object_max_bytes": 524288,
+    "fault_every_seconds": 60,
+    "fault_down_seconds": 25,
+    "seed": 1789891855817446203,
+    "faults_enabled": true
+  },
+  "traffic": {
+    "writes": 184516,
+    "writes_ok": 106023,
+    "writes_refused_503": 44796,
+    "write_errors": 33697,
+    "reads": 428540,
+    "read_hits": 301576,
+    "read_misses": 21811,
+    "read_errors": 105153,
+    "bytes_written": 27919326691,
+    "bytes_read": 78906423005,
+    "ops_per_second": 1019.5824432935798,
+    "error_rate": 0.22648828165779308,
+    "connection_refused": 98592,
+    "timeouts": 12,
+    "server_5xx": 27035
+  },
+  "correctness": {
+    "reads_verified": 304325,
+    "corrupted_reads": 0
+  },
+  "faults": [
+    {
+      "node": "node-b",
+      "stopped_at": "2026-09-20T08:11:55.823995857Z",
+      "started_at": "2026-09-20T08:12:22.125270354Z",
+      "down_for": "26.301s"
+    },
+    {
+      "node": "node-b",
+      "stopped_at": "2026-09-20T08:12:55.823981561Z",
+      "started_at": "2026-09-20T08:13:22.209847641Z",
+      "down_for": "26.386s"
+    },
+    {
+      "node": "node-b",
+      "stopped_at": "2026-09-20T08:13:55.824230623Z",
+      "started_at": "2026-09-20T08:14:22.202557374Z",
+      "down_for": "26.378s"
+    },
+    {
+      "node": "node-c",
+      "stopped_at": "2026-09-20T08:14:55.824622274Z",
+      "started_at": "2026-09-20T08:15:22.257125182Z",
+      "down_for": "26.433s"
+    },
+    {
+      "node": "node-b",
+      "stopped_at": "2026-09-20T08:15:55.824034376Z",
+      "started_at": "2026-09-20T08:16:22.125536105Z",
+      "down_for": "26.302s"
+    },
+    {
+      "node": "node-c",
+      "stopped_at": "2026-09-20T08:16:55.823972267Z",
+      "started_at": "2026-09-20T08:17:22.205561821Z",
+      "down_for": "26.382s"
+    },
+    {
+      "node": "node-b",
+      "stopped_at": "2026-09-20T08:17:55.824758551Z",
+      "started_at": "2026-09-20T08:18:22.149694211Z",
+      "down_for": "26.325s"
+    },
+    {
+      "node": "node-c",
+      "stopped_at": "2026-09-20T08:18:55.824523438Z",
+      "started_at": "2026-09-20T08:19:22.212233831Z",
+      "down_for": "26.388s"
+    },
+    {
+      "node": "node-b",
+      "stopped_at": "2026-09-20T08:19:55.82478743Z",
+      "started_at": "2026-09-20T08:20:22.185872931Z",
+      "down_for": "26.361s"
+    },
+    {
+      "node": "node-a",
+      "stopped_at": "2026-09-20T08:20:55.824286071Z",
+      "started_at": "2026-09-20T08:20:57.10534589Z",
+      "down_for": "1.281s"
+    }
+  ],
+  "convergence": {
+    "attempted": true,
+    "objects_checked": 3000,
+    "objects_from_refused_writes": 2000,
+    "objects_from_acknowledged_writes": 1000,
+    "fully_replicated_at_first_check": 875,
+    "fully_replicated": 1122,
+    "under_replicated": 0,
+    "absent_everywhere": 1878,
+    "unreadable": 0,
+    "converged_after_seconds": 217.186675946,
+    "converged": true,
+    "waited_seconds": 217.186675459,
+    "note": "objects from refused (503) writes are the ones that were genuinely under-replicated: the coordinator kept a copy and the down peer never got one. Acknowledged writes are included as a control and are replicated by construction. An object absent from every node is not a failure for a refused write -- nothing was promised."
+  },
+  "final_verification": {
+    "objects_checked": 5049,
+    "correct": 2749,
+    "corrupted": 0,
+    "missing": 2300,
+    "unreadable": 0,
+    "note": "Eviction was active during this run, so an object that is missing at the end may have been evicted under quota pressure rather than lost. See eviction.objects_evicted and node_stats."
+  },
+  "node_stats": {
+    "node-a": {
+      "cluster": {
+        "members": [
+          "node-a",
+          "node-b",
+          "node-c"
+        ],
+        "replica_count": 2,
+        "self": "node-a"
+      },
+      "coordinator": {
+        "coordinated_puts": 0,
+        "forwarded_puts": 0,
+        "insufficient_acks": 0,
+        "local_hits": 0,
+        "misses": 5,
+        "peer_hits": 0,
+        "read_fallbacks": 0,
+        "repair_declined_over_quota": 0,
+        "replica_failures": 0,
+        "replica_writes": 1
+      },
+      "dir_fsync_supported": true,
+      "eviction": {
+        "bytes_reclaimed": 0,
+        "evicted": 0,
+        "failures": 0,
+        "overshoot": 0,
+        "sweeps": 0
+      },
+      "index": {
+        "deletes": 0,
+        "inserts": 0,
+        "touch_flushes": 0,
+        "touches_dropped": 0,
+        "touches_queued": 0,
+        "touches_written": 0
+      },
+      "node": "node-a",
+      "now": "2026-09-20T08:20:59.312144736Z",
+      "repair": {
+        "already_present": 0,
+        "audit_runs": 0,
+        "bytes_repaired": 0,
+        "declined_over_quota": 0,
+        "dropped_full_queue": 0,
+        "enqueued": 0,
+        "failed": 0,
+        "not_ours": 0,
+        "objects_audited": 0,
+        "queue_capacity": 1024,
+        "queue_depth": 0,
+        "repaired": 0
+      },
+      "storage": {
+        "bytes_in": 0,
+        "bytes_out": 0,
+        "bytes_stored": 10759365506,
+        "deletes": 0,
+        "get_misses": 0,
+        "gets": 0,
+        "objects_stored": 41114,
+        "puts_already_stored": 0,
+        "puts_ok": 0,
+        "puts_rejected": 0,
+        "verify_failures": 0
+      },
+      "uptime_seconds": 0.011615065,
+      "usage": {
+        "bytes": 10759365506,
+        "high_water_bytes": 11596411699,
+        "low_water_bytes": 10307921510,
+        "objects": 41114,
+        "over_high_water": false,
+        "quota_bytes": 12884901888
+      },
+      "version": "dev (unknown)"
+    },
+    "node-b": {
+      "cluster": {
+        "members": [
+          "node-a",
+          "node-b",
+          "node-c"
+        ],
+        "replica_count": 2,
+        "self": "node-b"
+      },
+      "coordinator": {
+        "coordinated_puts": 2348,
+        "forwarded_puts": 784,
+        "insufficient_acks": 5,
+        "local_hits": 77505,
+        "misses": 10957,
+        "peer_hits": 1328,
+        "read_fallbacks": 1328,
+        "repair_declined_over_quota": 26,
+        "replica_failures": 4,
+        "replica_writes": 6169
+      },
+      "dir_fsync_supported": true,
+      "eviction": {
+        "bytes_reclaimed": 2577665843,
+        "evicted": 9753,
+        "failures": 0,
+        "overshoot": 0,
+        "sweeps": 2
+      },
+      "index": {
+        "deletes": 9753,
+        "inserts": 8514,
+        "touch_flushes": 3268,
+        "touches_dropped": 0,
+        "touches_queued": 79853,
+        "touches_written": 79710
+      },
+      "node": "node-b",
+      "now": "2026-09-20T08:20:59.321691629Z",
+      "repair": {
+        "already_present": 0,
+        "audit_runs": 0,
+        "bytes_repaired": 0,
+        "declined_over_quota": 0,
+        "dropped_full_queue": 0,
+        "enqueued": 0,
+        "failed": 0,
+        "not_ours": 0,
+        "objects_audited": 0,
+        "queue_capacity": 1024,
+        "queue_depth": 0,
+        "repaired": 0
+      },
+      "storage": {
+        "bytes_in": 2290272101,
+        "bytes_out": 778855086,
+        "bytes_stored": 10558583732,
+        "deletes": 9753,
+        "get_misses": 8382,
+        "gets": 13740,
+        "objects_stored": 40465,
+        "puts_already_stored": 0,
+        "puts_ok": 8517,
+        "puts_rejected": 0,
+        "verify_failures": 0
+      },
+      "uptime_seconds": 35.009432526,
+      "usage": {
+        "bytes": 10557737088,
+        "high_water_bytes": 11596411699,
+        "low_water_bytes": 10307921510,
+        "objects": 40462,
+        "over_high_water": false,
+        "quota_bytes": 12884901888
+      },
+      "version": "dev (unknown)"
+    },
+    "node-c": {
+      "cluster": {
+        "members": [
+          "node-a",
+          "node-b",
+          "node-c"
+        ],
+        "replica_count": 2,
+        "self": "node-c"
+      },
+      "coordinator": {
+        "coordinated_puts": 7473,
+        "forwarded_puts": 2646,
+        "insufficient_acks": 2760,
+        "local_hits": 111348,
+        "misses": 23359,
+        "peer_hits": 4354,
+        "read_fallbacks": 4354,
+        "repair_declined_over_quota": 32,
+        "replica_failures": 1687,
+        "replica_writes": 9582
+      },
+      "dir_fsync_supported": true,
+      "eviction": {
+        "bytes_reclaimed": 3866300903,
+        "evicted": 14632,
+        "failures": 0,
+        "overshoot": 0,
+        "sweeps": 3
+      },
+      "index": {
+        "deletes": 14632,
+        "inserts": 17053,
+        "touch_flushes": 9543,
+        "touches_dropped": 0,
+        "touches_queued": 150000,
+        "touches_written": 145799
+      },
+      "node": "node-c",
+      "now": "2026-09-20T08:20:59.324944636Z",
+      "repair": {
+        "already_present": 21286,
+        "audit_runs": 137,
+        "bytes_repaired": 1098725490,
+        "declined_over_quota": 14,
+        "dropped_full_queue": 137,
+        "enqueued": 27973,
+        "failed": 0,
+        "not_ours": 0,
+        "objects_audited": 28110,
+        "queue_capacity": 1024,
+        "queue_depth": 855,
+        "repaired": 4115
+      },
+      "storage": {
+        "bytes_in": 4496239150,
+        "bytes_out": 3096154406,
+        "bytes_stored": 11304303598,
+        "deletes": 14632,
+        "get_misses": 23970,
+        "gets": 47409,
+        "objects_stored": 43332,
+        "puts_already_stored": 0,
+        "puts_ok": 17055,
+        "puts_rejected": 0,
+        "verify_failures": 0
+      },
+      "uptime_seconds": 95.078132029,
+      "usage": {
+        "bytes": 11302922520,
+        "high_water_bytes": 11596411699,
+        "low_water_bytes": 10307921510,
+        "objects": 43329,
+        "over_high_water": false,
+        "quota_bytes": 12884901888
+      },
+      "version": "dev (unknown)"
+    }
+  },
+  "eviction": {
+    "observed": true,
+    "objects_evicted": 24385,
+    "bytes_reclaimed": 6443966746,
+    "any_node_over_high_water": false
+  },
+  "verdict": "PASS"
+}

@@ -1,10 +1,10 @@
 {
   "corrupted_reads": 0,
-  "generated_at": "2026-09-20T07:08:43Z",
+  "generated_at": "2026-09-20T08:40:43Z",
   "kind": "phase2-docker-node-loss",
   "objects_written": 1000,
   "reads_checked": 671,
   "recovered_after_restart": 671,
-  "served_by_fallback": 344,
+  "served_by_fallback": 327,
   "victim": "node-b"
 }

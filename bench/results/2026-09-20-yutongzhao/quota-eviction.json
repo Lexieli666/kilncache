@@ -1,0 +1,20 @@
+{
+  "bytes_reclaimed": 16809984,
+  "cold_writes": 600,
+  "documented_tolerance_bytes": 3807641,
+  "eviction_failures": 0,
+  "final_bytes_used": 3178496,
+  "generated_at": "2026-09-20T08:40:24Z",
+  "high_water_bytes": 3774873,
+  "hot_objects_surviving": 10,
+  "hot_working_set": 10,
+  "index_bytes_equals_disk": true,
+  "kind": "quota-eviction",
+  "low_water_bytes": 2936012,
+  "max_bytes": 4194304,
+  "object_size_bytes": 32768,
+  "objects_evicted": 513,
+  "peak_bytes_used": 3768320,
+  "peak_over_high_water_bytes": -6553,
+  "sweeps": 19
+}

@@ -17,6 +17,14 @@ import (
 	"github.com/Lexieli666/kilncache/internal/storage"
 )
 
+// ErrOverQuota means a node declined a repair write because it is already above
+// its high-water mark. The HTTP layer maps it to 507 Insufficient Storage.
+//
+// It is deliberately not an error condition for the cluster: the sender counts
+// it as "declined", not "failed". A node saying "I do not have room for a copy
+// of something I already chose to evict" is the system working.
+var ErrOverQuota = errors.New("node is over its storage high-water mark")
+
 // ErrInsufficientReplicas means the required number of copies could not be
 // written. The HTTP layer maps it to 503.
 //
@@ -65,6 +73,7 @@ const (
 //	HopClient      -> may forward as HopCoordinator or HopReplica or HopRead
 //	HopCoordinator -> may forward as HopReplica only
 //	HopReplica     -> terminal: store locally or fail
+//	HopRepair      -> terminal: store locally, or decline if over quota
 //	HopRead        -> terminal: serve locally or 404
 //
 // Because the only outgoing edge from HopCoordinator leads to a terminal state,
@@ -84,13 +93,25 @@ const (
 	HopCoordinator Hop = "coordinator"
 	// HopReplica is a request to store one copy and nothing more.
 	HopReplica Hop = "replica"
+	// HopRepair is a replica write issued by the background repair worker
+	// rather than by a client's PUT.
+	//
+	// It is terminal like HopReplica, and differs in exactly one way: a node
+	// that is already over its high-water mark declines it. That distinction
+	// exists because eviction and repair are otherwise capable of fighting each
+	// other indefinitely -- a node evicts an object to get under quota, the
+	// other holder's auditor sees a missing replica and sends it back, and the
+	// quota is never enforced. A client's write is new data someone is waiting
+	// for and is always accepted; a repair write is a copy of something this
+	// node has already decided it does not have room for.
+	HopRepair Hop = "repair"
 	// HopRead is a request to serve a local copy and nothing more.
 	HopRead Hop = "read"
 )
 
 // Terminal reports whether a request with this role may forward further.
 func (h Hop) Terminal() bool {
-	return h == HopReplica || h == HopRead
+	return h == HopReplica || h == HopRead || h == HopRepair
 }
 
 // Forwarded reports whether the request came from another node.
@@ -108,6 +129,8 @@ func ParseHop(s string) Hop {
 		return HopCoordinator
 	case HopReplica:
 		return HopReplica
+	case HopRepair:
+		return HopRepair
 	case HopRead:
 		return HopRead
 	case HopClient:

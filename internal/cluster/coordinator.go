@@ -59,6 +59,11 @@ type Coordinator struct {
 	replicaCount int
 	log          *slog.Logger
 
+	// quotaProbe answers "is this node over its high-water mark?". It is a
+	// function rather than a direct dependency on the evictor so that
+	// internal/cluster does not have to know the quota exists.
+	quotaProbe atomic.Pointer[func(ctx context.Context) (bool, int64, int64)]
+
 	stats CoordinatorStats
 }
 
@@ -75,6 +80,7 @@ type CoordinatorStats struct {
 	CoordinatedPuts  atomic.Int64
 	InsufficientAcks atomic.Int64
 	ReadFallbacks    atomic.Int64
+	RepairDeclined   atomic.Int64
 }
 
 // CoordinatorSnapshot is a JSON-friendly copy.
@@ -88,6 +94,7 @@ type CoordinatorSnapshot struct {
 	CoordinatedPuts  int64 `json:"coordinated_puts"`
 	InsufficientAcks int64 `json:"insufficient_acks"`
 	ReadFallbacks    int64 `json:"read_fallbacks"`
+	RepairDeclined   int64 `json:"repair_declined_over_quota"`
 }
 
 // Snapshot copies the counters.
@@ -102,6 +109,7 @@ func (c *Coordinator) Snapshot() CoordinatorSnapshot {
 		CoordinatedPuts:  c.stats.CoordinatedPuts.Load(),
 		InsufficientAcks: c.stats.InsufficientAcks.Load(),
 		ReadFallbacks:    c.stats.ReadFallbacks.Load(),
+		RepairDeclined:   c.stats.RepairDeclined.Load(),
 	}
 }
 
@@ -141,6 +149,21 @@ func NewCoordinator(opts CoordinatorOptions) (*Coordinator, error) {
 	}, nil
 }
 
+// SetQuotaProbe installs the function that reports whether this node is above
+// its storage high-water mark. It is set after construction because the evictor
+// that owns the quota is built from the store this coordinator already holds.
+func (c *Coordinator) SetQuotaProbe(f func(ctx context.Context) (over bool, used, high int64)) {
+	c.quotaProbe.Store(&f)
+}
+
+func (c *Coordinator) overHighWater(ctx context.Context) (bool, int64, int64) {
+	p := c.quotaProbe.Load()
+	if p == nil {
+		return false, 0, 0
+	}
+	return (*p)(ctx)
+}
+
 // Ring exposes the placement function, for repair and for tests.
 func (c *Coordinator) Ring() *Ring { return c.ring }
 
@@ -149,6 +172,11 @@ func (c *Coordinator) ReplicaCount() int { return c.replicaCount }
 
 // Local exposes the local store.
 func (c *Coordinator) Local() *storage.Store { return c.local }
+
+// Peers exposes the peer client, for the repair worker. Repair needs to ask a
+// specific node whether it has a specific object, which is below the level of
+// the read fallback that Open provides.
+func (c *Coordinator) Peers() PeerClient { return c.peers }
 
 // Put places an object according to its hop role.
 //
@@ -162,6 +190,19 @@ func (c *Coordinator) Local() *storage.Store { return c.local }
 // one at most one. See protocol.Hop for why the bound matters.
 func (c *Coordinator) Put(ctx context.Context, ns storage.Namespace, key string, body io.Reader, declaredSize int64, hop protocol.Hop) (protocol.PutOutcome, error) {
 	switch hop {
+	case protocol.HopRepair:
+		// A repair write is a copy of something this node may have evicted on
+		// purpose. Accepting it while already over the high-water mark would
+		// force an immediate eviction, and the two subsystems would chase each
+		// other forever without the quota ever being enforced.
+		if over, used, high := c.overHighWater(ctx); over {
+			c.stats.RepairDeclined.Add(1)
+			c.log.Debug("declined a repair write: over the high-water mark",
+				slog.String("key", short(key)),
+				slog.Int64("used", used), slog.Int64("high_water", high))
+			return protocol.PutOutcome{}, protocol.ErrOverQuota
+		}
+		return c.putLocalOnly(ctx, ns, key, body, declaredSize)
 	case protocol.HopReplica:
 		return c.putLocalOnly(ctx, ns, key, body, declaredSize)
 	case protocol.HopCoordinator:

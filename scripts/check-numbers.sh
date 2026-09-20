@@ -31,7 +31,16 @@ if [ ${#files[@]} -eq 0 ]; then
 fi
 
 export UNIT_RE='[0-9][0-9,.]*\s*(req/s|reqs/s|requests/s|ops/s|MiB/s|GiB/s|KiB/s|MB/s|GB/s|IOPS|ms\b|µs\b|seconds\b|% (faster|lower|reduction|coverage|of statements)|x faster)'
-export EXEMPT_RE='(?i)target|aspiration|goal range|not yet measured|e\.g\.|for example|placeholder|budget|\bwant\b|shields\.io'
+# Exemptions fall into two groups.
+#
+# Aspirations ("target", "goal range") are allowed to be unmeasured by
+# definition -- they are what a result will later be compared against.
+#
+# Configured values (an interval, a timeout, a backoff, a default) are settings
+# the code contains, not observations about how the system behaved. Requiring a
+# benchmark file for "the auditor waits 250 ms between passes" would be asking
+# for evidence of a constant.
+export EXEMPT_RE='(?i)target|aspiration|goal range|not yet measured|e\.g\.|for example|placeholder|budget|\bwant\b|shields\.io|interval|backoff|timeout|\bdefaults? to\b|configured|\bis set to\b|deadline|grace period'
 
 python3 - "${files[@]}" <<'PY'
 import os, re, sys

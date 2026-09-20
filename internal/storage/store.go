@@ -37,6 +37,17 @@ type Options struct {
 
 	Logger *slog.Logger
 
+	// Quota bounds disk usage. A zero MaxBytes disables eviction, which is
+	// what the unit tests want and what a node with a dedicated disk may want.
+	Quota Quota
+
+	// Policy ranks eviction candidates. Zero means DefaultEvictionPolicy.
+	Policy EvictionPolicy
+
+	// DisableIndex skips the metadata index entirely. Only useful in tests
+	// that are about the object tree and nothing else.
+	DisableIndex bool
+
 	// now is injectable so eviction and repair tests can control time.
 	now func() time.Time
 }
@@ -56,6 +67,15 @@ type Store struct {
 	now            func() time.Time
 
 	dirs *dirCache
+
+	// index is the metadata layer: sizes, access times, and the totals that
+	// quota enforcement needs. It is nil when DisableIndex is set, and every
+	// call site tolerates that rather than branching on a mode flag.
+	index *Index
+
+	// evictor is set by the owner (internal/node) after Open, because it needs
+	// the store that is being constructed here.
+	evictor atomic.Pointer[Evictor]
 
 	closed atomic.Bool
 
@@ -156,16 +176,175 @@ func Open(opts Options) (*Store, error) {
 	if err := s.sweepTemps(); err != nil {
 		return nil, err
 	}
+
+	if !opts.DisableIndex {
+		idx, err := OpenIndex(IndexOptions{
+			Path:   indexPath(root),
+			Logger: opts.Logger,
+			now:    opts.now,
+		})
+		if err != nil {
+			return nil, err
+		}
+		s.index = idx
+
+		// Reconcile before the store is handed to anyone. The index is derived
+		// state and the disk is the truth; a node that served requests against
+		// an unreconciled index could report an object it does not have.
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+		defer cancel()
+		if _, err := s.Reconcile(ctx); err != nil {
+			_ = idx.Close()
+			return nil, err
+		}
+	}
 	return s, nil
+}
+
+// Index exposes the metadata index, or nil when it is disabled.
+func (s *Store) Index() *Index { return s.index }
+
+// AttachEvictor wires an evictor so that writes can wake it.
+//
+// It is set after construction rather than in Open because the evictor needs a
+// reference to the store being constructed. The alternative -- a two-phase
+// constructor -- would push that awkwardness onto every caller.
+func (s *Store) AttachEvictor(e *Evictor) { s.evictor.Store(e) }
+
+// ReconcileResult reports what startup reconciliation found.
+type ReconcileResult struct {
+	FilesOnDisk    int64         `json:"files_on_disk"`
+	BytesOnDisk    int64         `json:"bytes_on_disk"`
+	IndexedBefore  int64         `json:"indexed_before"`
+	AddedToIndex   int64         `json:"added_to_index"`
+	RemovedStale   int64         `json:"removed_stale_index_rows"`
+	SizeCorrected  int64         `json:"size_corrected"`
+	Duration       time.Duration `json:"-"`
+	DurationMillis int64         `json:"duration_ms"`
+}
+
+// Reconcile rebuilds the index from what is actually on disk.
+//
+// The disk is authoritative and the index is derived, in that order and never
+// the other way round. This is the rule that makes the Phase 3 acceptance
+// criterion -- "metadata never marks a missing file valid" -- structurally true
+// rather than a behaviour to be maintained: reconciliation walks the object
+// tree, and an index row with no file simply does not survive the walk.
+//
+// The cost is a full directory walk at startup, which is proportional to the
+// number of objects rather than to how long the node was down. On a
+// million-object cache that is seconds, not milliseconds, and it happens before
+// the node reports ready. The alternative -- trusting the index and repairing
+// lazily -- would mean a node coming back from an unclean shutdown could answer
+// HEAD with 200 for an object it lost, which is the one answer a cache must
+// never give.
+func (s *Store) Reconcile(ctx context.Context) (ReconcileResult, error) {
+	var res ReconcileResult
+	if s.index == nil {
+		return res, nil
+	}
+	start := s.now()
+
+	before, _, err := s.index.Totals(ctx)
+	if err != nil {
+		return res, err
+	}
+	res.IndexedBefore = before
+
+	// Keep whatever access history the old index has: a restart should not make
+	// every object look equally hot and defeat eviction's ranking.
+	known := make(map[objRef]Entry, before)
+	if err := s.index.All(ctx, func(e Entry) error {
+		known[objRef{NS: e.Namespace, Key: e.Key}] = e
+		return nil
+	}); err != nil {
+		return res, err
+	}
+
+	entries := make([]Entry, 0, len(known))
+	for _, ns := range []Namespace{NamespaceCAS, NamespaceAC} {
+		if err := s.Walk(ns, func(st Stat) error {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			res.FilesOnDisk++
+			res.BytesOnDisk += st.Size
+
+			ref := objRef{NS: ns, Key: st.Key}
+			if prev, ok := known[ref]; ok {
+				delete(known, ref)
+				if prev.Size != st.Size {
+					// The file on disk wins. A size mismatch means the index is
+					// describing something that is no longer there.
+					res.SizeCorrected++
+					prev.Size = st.Size
+				}
+				entries = append(entries, prev)
+				return nil
+			}
+			res.AddedToIndex++
+			entries = append(entries, Entry{
+				Namespace:   ns,
+				Key:         st.Key,
+				Size:        st.Size,
+				CreatedAt:   st.ModTime,
+				LastAccess:  st.ModTime,
+				AccessCount: 1,
+			})
+			return nil
+		}); err != nil {
+			return res, fmt.Errorf("storage: reconcile walk %s: %w", ns, err)
+		}
+	}
+	// Anything left in `known` is an index row with no file.
+	res.RemovedStale = int64(len(known))
+
+	if err := s.index.ReplaceAll(ctx, entries); err != nil {
+		return res, err
+	}
+
+	s.stats.ObjectsStored.Store(res.FilesOnDisk)
+	s.stats.BytesStored.Store(res.BytesOnDisk)
+
+	res.Duration = s.now().Sub(start)
+	res.DurationMillis = res.Duration.Milliseconds()
+
+	if err := s.index.SetMeta(ctx, "reconciled_at", s.now().UTC().Format(time.RFC3339Nano)); err != nil {
+		s.log.Warn("could not record reconciliation time", slog.String("err", err.Error()))
+	}
+
+	level := slog.LevelInfo
+	if res.RemovedStale > 0 || res.SizeCorrected > 0 {
+		// Either of these means the previous shutdown was unclean, or something
+		// touched the data directory. Worth noticing.
+		level = slog.LevelWarn
+	}
+	s.log.Log(ctx, level, "reconciled index against disk",
+		slog.Int64("files_on_disk", res.FilesOnDisk),
+		slog.Int64("bytes_on_disk", res.BytesOnDisk),
+		slog.Int64("indexed_before", res.IndexedBefore),
+		slog.Int64("added", res.AddedToIndex),
+		slog.Int64("removed_stale_rows", res.RemovedStale),
+		slog.Int64("size_corrected", res.SizeCorrected),
+		slog.Int64("duration_ms", res.DurationMillis),
+	)
+	return res, nil
 }
 
 // Root returns the absolute store root.
 func (s *Store) Root() string { return s.root }
 
-// Close marks the store closed. Open file handles held by in-flight readers
-// remain valid; the kernel, not this type, owns their lifetime.
+// Close marks the store closed and shuts the index down.
+//
+// Open file handles held by in-flight readers remain valid; the kernel, not
+// this type, owns their lifetime.
 func (s *Store) Close() error {
-	s.closed.Store(true)
+	if s.closed.Swap(true) {
+		return nil
+	}
+	if s.index != nil {
+		return s.index.Close()
+	}
 	return nil
 }
 
@@ -266,6 +445,11 @@ func (s *Store) Put(ctx context.Context, ns Namespace, key string, r io.Reader, 
 			n, _ := s.drain(r)
 			s.stats.PutsAlreadyStored.Add(1)
 			s.stats.BytesIn.Add(n)
+			// A duplicate PUT is a use. Recording it keeps an object that
+			// several builds keep re-uploading from being evicted as cold.
+			if s.index != nil {
+				s.index.Touch(ns, key)
+			}
 			return PutResult{
 				Key: key, Namespace: ns, Size: info.Size(),
 				Digest: key, AlreadyStored: true, Durable: true,
@@ -361,6 +545,21 @@ func (s *Store) Put(ctx context.Context, ns Namespace, key string, r io.Reader, 
 	s.stats.ObjectsStored.Add(1)
 	s.stats.BytesStored.Add(written)
 
+	if s.index != nil {
+		if err := s.index.Upsert(ctx, ns, key, written); err != nil {
+			// The object is on disk and readable. An index that has not caught
+			// up costs accurate quota accounting until the next
+			// reconciliation, which is a worse outcome than losing the object
+			// but not a reason to fail a write that succeeded.
+			s.log.Error("object stored but not indexed; quota accounting will be short until the next reconcile",
+				slog.String("ns", ns.String()), slog.String("key", key),
+				slog.String("err", err.Error()))
+		}
+		if e := s.evictor.Load(); e != nil {
+			e.Wake()
+		}
+	}
+
 	return PutResult{
 		Key: key, Namespace: ns, Size: written,
 		Digest: digest, AlreadyStored: false, Durable: durable,
@@ -412,6 +611,11 @@ func (s *Store) Stat(ns Namespace, key string) (Stat, error) {
 	}
 	if !info.Mode().IsRegular() {
 		return Stat{}, ErrNotFound
+	}
+	// A HEAD is how Bazel asks "do you have this"; an object it keeps asking
+	// about is in use even if the bytes are already in the client's own cache.
+	if s.index != nil {
+		s.index.Touch(ns, key)
 	}
 	return Stat{Key: key, Namespace: ns, Size: info.Size(), ModTime: info.ModTime()}, nil
 }
@@ -528,6 +732,9 @@ func (s *Store) Get(ns Namespace, key string) (*Object, error) {
 	}
 
 	s.stats.Gets.Add(1)
+	if s.index != nil {
+		s.index.Touch(ns, key)
+	}
 	// Only CAS objects can be verified on read: an AC entry's key is a hash of
 	// the action, not of the bytes, so there is nothing to compare against.
 	verify := s.verifyReads && ns.ContentAddressed()
@@ -543,9 +750,26 @@ func (s *Store) Get(ns Namespace, key string) (*Object, error) {
 	return o, nil
 }
 
-// Delete removes an object. Deleting something that is not there is not an
-// error: eviction and repair both race with each other and with clients, and a
-// double delete is the normal outcome of that race, not a fault.
+// Delete removes an object.
+//
+// Deleting something that is not there is not an error: eviction and repair
+// race with each other and with clients, and a double delete is the normal
+// outcome of that race, not a fault.
+//
+// There is deliberately no directory fsync here, and the asymmetry with Put is
+// the point. Publication has to be durable because the client was told the
+// object exists (ADR-0003). A *deletion* does not: if the machine loses power
+// after the unlink but before the directory entry reaches stable storage, the
+// file reappears, startup reconciliation re-adopts it, and the evictor removes
+// it again. Nothing is lost and nothing is wrong -- the only cost is a little
+// disk for a little while.
+//
+// Paying for that guarantee anyway cost an order of magnitude. On the
+// development host an fsync costs about 1.1 ms
+// (bench/results/2026-09-20-yutongzhao/device-baseline.json), and one per
+// deletion held eviction to roughly 190 objects per second -- below the ingest
+// rate, so the quota simply stopped being enforced under load. See
+// docs/perf-notes.md and docs/bugs.md entry 8.
 func (s *Store) Delete(ns Namespace, key string) error {
 	if !ns.Valid() {
 		return fmt.Errorf("%w: %q", ErrBadNamespace, ns)
@@ -567,11 +791,47 @@ func (s *Store) Delete(ns Namespace, key string) error {
 		s.stats.BytesStored.Add(-info.Size())
 	}
 	s.stats.Deletes.Add(1)
-	if err := syncDir(dir); err != nil && !errors.Is(err, errDirSyncUnsupported) {
-		s.log.Warn("directory fsync after delete failed",
-			slog.String("dir", dir), slog.String("err", err.Error()))
+	if s.index != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := s.index.Remove(ctx, ns, key); err != nil && !errors.Is(err, ErrClosed) {
+			s.log.Warn("file deleted but index row remains; reconciliation will clear it",
+				slog.String("ns", ns.String()), slog.String("key", key),
+				slog.String("err", err.Error()))
+		}
 	}
+	_ = dir
 	return nil
+}
+
+// DeleteFile unlinks an object without touching the index.
+//
+// The evictor uses it so that a batch of deletions can share one index
+// transaction instead of paying for one per object. Anything else should use
+// Delete, which keeps the two in step.
+func (s *Store) DeleteFile(ns Namespace, key string) (int64, error) {
+	if !ns.Valid() {
+		return 0, fmt.Errorf("%w: %q", ErrBadNamespace, ns)
+	}
+	if err := ValidateKey(key); err != nil {
+		return 0, err
+	}
+	_, path := s.ObjectPath(ns, key)
+	info, statErr := os.Stat(path)
+	if err := os.Remove(path); err != nil {
+		if os.IsNotExist(err) {
+			return 0, nil
+		}
+		return 0, fmt.Errorf("delete object: %w", err)
+	}
+	var size int64
+	if statErr == nil {
+		size = info.Size()
+		s.stats.ObjectsStored.Add(-1)
+		s.stats.BytesStored.Add(-size)
+	}
+	s.stats.Deletes.Add(1)
+	return size, nil
 }
 
 // Walk visits every stored object. It is used by the startup reconciliation and

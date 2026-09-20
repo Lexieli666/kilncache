@@ -1,0 +1,120 @@
+{
+  "kind": "chaos",
+  "generated_at": "2026-09-20T07:47:55.849751499Z",
+  "config": {
+    "nodes": [
+      "node-a",
+      "node-b",
+      "node-c"
+    ],
+    "duration_seconds": 600.003063088,
+    "workers": 12,
+    "read_ratio": 0.7,
+    "object_min_bytes": 1024,
+    "object_max_bytes": 524288,
+    "fault_every_seconds": 60,
+    "fault_down_seconds": 25,
+    "seed": 1789889875838651933,
+    "faults_enabled": true
+  },
+  "traffic": {
+    "writes": 201485,
+    "writes_ok": 112422,
+    "writes_refused_503": 50647,
+    "write_errors": 38416,
+    "reads": 469517,
+    "read_hits": 328182,
+    "read_misses": 18183,
+    "read_errors": 123152,
+    "bytes_written": 29587308053,
+    "bytes_read": 85808629504,
+    "ops_per_second": 1118.3309574231073,
+    "error_rate": 0.2407861675524067,
+    "connection_refused": 102188,
+    "timeouts": 10,
+    "server_5xx": 34079
+  },
+  "correctness": {
+    "reads_verified": 332027,
+    "corrupted_reads": 0
+  },
+  "faults": [
+    {
+      "node": "node-c",
+      "stopped_at": "2026-09-20T07:38:55.846450547Z",
+      "started_at": "2026-09-20T07:39:22.087308329Z",
+      "down_for": "26.241s"
+    },
+    {
+      "node": "node-b",
+      "stopped_at": "2026-09-20T07:39:55.846915618Z",
+      "started_at": "2026-09-20T07:40:22.323417219Z",
+      "down_for": "26.477s"
+    },
+    {
+      "node": "node-b",
+      "stopped_at": "2026-09-20T07:40:55.846445576Z",
+      "started_at": "2026-09-20T07:41:25.132692394Z",
+      "down_for": "29.286s"
+    },
+    {
+      "node": "node-b",
+      "stopped_at": "2026-09-20T07:41:55.846901682Z",
+      "started_at": "2026-09-20T07:42:25.055555331Z",
+      "down_for": "29.209s"
+    },
+    {
+      "node": "node-b",
+      "stopped_at": "2026-09-20T07:42:55.846959459Z",
+      "started_at": "2026-09-20T07:43:25.125681198Z",
+      "down_for": "29.279s"
+    },
+    {
+      "node": "node-a",
+      "stopped_at": "2026-09-20T07:43:55.846485428Z",
+      "started_at": "2026-09-20T07:44:22.272562041Z",
+      "down_for": "26.426s"
+    },
+    {
+      "node": "node-a",
+      "stopped_at": "2026-09-20T07:44:55.846587439Z",
+      "started_at": "2026-09-20T07:45:23.151123737Z",
+      "down_for": "27.305s"
+    },
+    {
+      "node": "node-c",
+      "stopped_at": "2026-09-20T07:45:55.846532233Z",
+      "started_at": "2026-09-20T07:46:23.221333039Z",
+      "down_for": "27.375s"
+    },
+    {
+      "node": "node-a",
+      "stopped_at": "2026-09-20T07:46:55.846934404Z",
+      "started_at": "2026-09-20T07:47:24.613617743Z",
+      "down_for": "28.767s"
+    }
+  ],
+  "convergence": {
+    "attempted": true,
+    "objects_checked": 3000,
+    "objects_from_refused_writes": 2000,
+    "objects_from_acknowledged_writes": 1000,
+    "fully_replicated_at_first_check": 1266,
+    "fully_replicated": 1770,
+    "under_replicated": 0,
+    "absent_everywhere": 1230,
+    "unreadable": 0,
+    "converged_after_seconds": 113.716210312,
+    "converged": true,
+    "waited_seconds": 113.716210038,
+    "note": "objects from refused (503) writes are the ones that were genuinely under-replicated: the coordinator kept a copy and the down peer never got one. Acknowledged writes are included as a control and are replicated by construction. An object absent from every node is not a failure for a refused write -- nothing was promised."
+  },
+  "final_verification": {
+    "objects_checked": 5111,
+    "correct": 3845,
+    "corrupted": 0,
+    "missing": 1266,
+    "unreadable": 0
+  },
+  "verdict": "FAIL: 1266 acknowledged objects are gone"
+}

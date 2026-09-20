@@ -517,3 +517,60 @@ func TestACReplicatesLikeCAS(t *testing.T) {
 		t.Error("AC entry was not replicated")
 	}
 }
+
+// TestRepairWriteDeclinedWhenOverQuota is the falsifier for the fix to the
+// eviction/repair fight.
+//
+// A 10-minute chaos run found three nodes sitting at 2.6x their configured
+// quota with eviction effectively stopped: each node evicted to get under
+// quota, the other holder's repair auditor saw a missing replica and sent the
+// object straight back, and neither subsystem ever won. A node above its
+// high-water mark now declines repair writes specifically, while still
+// accepting client writes, which are new data someone is waiting for.
+func TestRepairWriteDeclinedWhenOverQuota(t *testing.T) {
+	f := newFixture(t, "node-a", 2)
+	key, content := keyOwnedBy(t, f.ring, "node-a", 2)
+
+	over := true
+	f.coord.SetQuotaProbe(func(context.Context) (bool, int64, int64) {
+		return over, 10_000, 9_000
+	})
+
+	// A repair write is declined while over quota.
+	_, err := put(t, f.coord, storage.NamespaceCAS, key, content, protocol.HopRepair)
+	if !errors.Is(err, protocol.ErrOverQuota) {
+		t.Fatalf("repair write over quota = %v, want ErrOverQuota", err)
+	}
+	if _, err := f.store.Stat(storage.NamespaceCAS, key); !errors.Is(err, storage.ErrNotFound) {
+		t.Error("a declined repair write stored the object anyway")
+	}
+
+	// A client write is still accepted: refusing new data because the disk is
+	// full is eviction's job, not the admission path's.
+	if _, err := put(t, f.coord, storage.NamespaceCAS, key, content, protocol.HopClient); err != nil {
+		t.Fatalf("client write while over quota: %v", err)
+	}
+	if _, err := f.store.Stat(storage.NamespaceCAS, key); err != nil {
+		t.Errorf("client write over quota was not stored: %v", err)
+	}
+	if n := f.coord.Snapshot().RepairDeclined; n != 1 {
+		t.Errorf("RepairDeclined = %d, want 1", n)
+	}
+
+	// And once back under the mark, repair writes are accepted again.
+	over = false
+	key2, content2 := keyOwnedBy(t, f.ring, "node-b", 2)
+	if _, err := put(t, f.coord, storage.NamespaceCAS, key2, content2, protocol.HopRepair); err != nil {
+		t.Fatalf("repair write under quota: %v", err)
+	}
+}
+
+// TestNoQuotaProbeAcceptsRepairWrites: with no probe installed -- a
+// single-node deployment, or a test -- repair writes must not be blocked.
+func TestNoQuotaProbeAcceptsRepairWrites(t *testing.T) {
+	f := newFixture(t, "node-a", 2)
+	key, content := keyOwnedBy(t, f.ring, "node-a", 2)
+	if _, err := put(t, f.coord, storage.NamespaceCAS, key, content, protocol.HopRepair); err != nil {
+		t.Fatalf("repair write with no quota probe: %v", err)
+	}
+}

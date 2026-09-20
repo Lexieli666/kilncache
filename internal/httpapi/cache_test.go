@@ -13,7 +13,9 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
+	"github.com/Lexieli666/kilncache/internal/protocol"
 	"github.com/Lexieli666/kilncache/internal/storage"
 )
 
@@ -27,7 +29,60 @@ type cacheFixture struct {
 	store   *storage.Store
 }
 
+// recordingObserver captures what the handler reported, so the metrics
+// contract can be asserted directly instead of by scraping an exposition
+// format and parsing it back.
+type recordingObserver struct {
+	mu        sync.Mutex
+	requests  []observedRequest
+	forwarded []string
+	inFlight  int
+	maxFlight int
+}
+
+type observedRequest struct {
+	op, ns, status string
+}
+
+func (o *recordingObserver) ObserveRequest(op, ns, status string, _ time.Duration) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.requests = append(o.requests, observedRequest{op, ns, status})
+}
+
+func (o *recordingObserver) ObserveForwarded(hop string) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.forwarded = append(o.forwarded, hop)
+}
+
+func (o *recordingObserver) InFlight(string) func() {
+	o.mu.Lock()
+	o.inFlight++
+	if o.inFlight > o.maxFlight {
+		o.maxFlight = o.inFlight
+	}
+	o.mu.Unlock()
+	return func() {
+		o.mu.Lock()
+		o.inFlight--
+		o.mu.Unlock()
+	}
+}
+
+func (o *recordingObserver) snapshot() ([]observedRequest, []string, int) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	reqs := append([]observedRequest(nil), o.requests...)
+	fwd := append([]string(nil), o.forwarded...)
+	return reqs, fwd, o.inFlight
+}
+
 func newCacheFixture(t *testing.T, maxObject int64) *cacheFixture {
+	return newCacheFixtureWithObserver(t, maxObject, nil)
+}
+
+func newCacheFixtureWithObserver(t *testing.T, maxObject int64, obs RequestObserver) *cacheFixture {
 	t.Helper()
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	store, err := storage.Open(storage.Options{
@@ -48,7 +103,7 @@ func newCacheFixture(t *testing.T, maxObject int64) *cacheFixture {
 		Version: "test",
 		Health:  health,
 		Log:     log,
-		Cache:   NewCacheHandler(&storeBackend{store: store}, log, "node-a", maxObject),
+		Cache:   NewCacheHandler(&storeBackend{store: store}, log, "node-a", maxObject, obs),
 	})
 	return &cacheFixture{handler: h, store: store}
 }
@@ -421,5 +476,79 @@ func TestLargeObjectOverHTTP(t *testing.T) {
 	}
 	if got := rec.Header().Get("Content-Length"); got != fmt.Sprint(len(content)) {
 		t.Errorf("Content-Length = %q, want %d", got, len(content))
+	}
+}
+
+// TestMetricsObserveEveryRequest is the falsifier for the claim that the
+// dashboard shows what the cache did. A status class that never reaches the
+// metrics is a status class nobody sees during an incident.
+func TestMetricsObserveEveryRequest(t *testing.T) {
+	obs := &recordingObserver{}
+	f := newCacheFixtureWithObserver(t, 64, obs)
+
+	content := []byte("metrics")
+	key := hashOf(content)
+
+	f.put(t, "/cas/"+key, content)                               // 201
+	f.do(t, http.MethodGet, "/cas/"+key, nil, 0)                 // 200
+	f.do(t, http.MethodGet, "/cas/"+hashOf([]byte("x")), nil, 0) // 404
+	f.put(t, "/cas/"+hashOf([]byte("y")), content)               // 400, digest mismatch
+	f.put(t, "/cas/"+key, bytes.Repeat([]byte("z"), 512))        // 413, too large
+
+	reqs, fwd, inFlight := obs.snapshot()
+	if len(reqs) != 5 {
+		t.Fatalf("observed %d requests, want 5: %+v", len(reqs), reqs)
+	}
+	if inFlight != 0 {
+		t.Errorf("in-flight gauge left at %d after all requests completed", inFlight)
+	}
+	if len(fwd) != 5 {
+		t.Errorf("observed %d hop labels, want 5", len(fwd))
+	}
+
+	gotStatus := map[string]bool{}
+	for _, r := range reqs {
+		gotStatus[r.status] = true
+		if r.ns != "cas" {
+			t.Errorf("namespace label = %q, want cas", r.ns)
+		}
+		if r.op != "get" && r.op != "put" {
+			t.Errorf("op label = %q", r.op)
+		}
+	}
+	for _, want := range []string{"201", "200", "404", "400", "413"} {
+		if !gotStatus[want] {
+			t.Errorf("status %s never reached the metrics; observed %+v", want, reqs)
+		}
+	}
+}
+
+// TestMetricsRecordHopRole: a forwarded request must be distinguishable from a
+// client one, or peer traffic and client traffic are indistinguishable on the
+// dashboard.
+func TestMetricsRecordHopRole(t *testing.T) {
+	obs := &recordingObserver{}
+	f := newCacheFixtureWithObserver(t, 0, obs)
+
+	content := []byte("hop")
+	key := hashOf(content)
+
+	req := httptest.NewRequest(http.MethodPut, "/cas/"+key, bytes.NewReader(content))
+	req.ContentLength = int64(len(content))
+	req.Header.Set(protocol.HeaderForwardedBy, "node-b")
+	req.Header.Set(protocol.HeaderHop, string(protocol.HopReplica))
+	f.handler.ServeHTTP(httptest.NewRecorder(), req)
+
+	f.do(t, http.MethodGet, "/cas/"+key, nil, 0)
+
+	_, fwd, _ := obs.snapshot()
+	if len(fwd) != 2 {
+		t.Fatalf("observed %d hop labels, want 2: %v", len(fwd), fwd)
+	}
+	if fwd[0] != string(protocol.HopReplica) {
+		t.Errorf("forwarded PUT recorded hop %q, want %q", fwd[0], protocol.HopReplica)
+	}
+	if fwd[1] != string(protocol.HopClient) {
+		t.Errorf("client GET recorded hop %q, want the client hop", fwd[1])
 	}
 }

@@ -27,15 +27,30 @@ type CacheHandler struct {
 	backend protocol.Backend
 	log     *slog.Logger
 	node    string
+	metrics RequestObserver
 
 	// maxObjectBytes mirrors the store's limit so an oversize upload can be
 	// refused from the Content-Length alone, before a byte is read.
 	maxObjectBytes int64
 }
 
-// NewCacheHandler builds the object-protocol handler.
-func NewCacheHandler(backend protocol.Backend, log *slog.Logger, node string, maxObjectBytes int64) *CacheHandler {
-	return &CacheHandler{backend: backend, log: log, node: node, maxObjectBytes: maxObjectBytes}
+// RequestObserver is the metrics surface the handler needs.
+//
+// An interface rather than a concrete *metrics.Metrics so that internal/httpapi
+// does not depend on the Prometheus client, and so that a test can assert what
+// was observed without scraping an exposition format.
+type RequestObserver interface {
+	ObserveRequest(op, ns, status string, d time.Duration)
+	ObserveForwarded(hop string)
+	InFlight(op string) func()
+}
+
+// NewCacheHandler builds the object-protocol handler. observer may be nil.
+func NewCacheHandler(backend protocol.Backend, log *slog.Logger, node string, maxObjectBytes int64, observer RequestObserver) *CacheHandler {
+	return &CacheHandler{
+		backend: backend, log: log, node: node,
+		metrics: observer, maxObjectBytes: maxObjectBytes,
+	}
 }
 
 const contentTypeOctet = "application/octet-stream"
@@ -53,17 +68,88 @@ func (h *CacheHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	hop := inboundHop(r)
 
+	op := opName(r.Method)
+	rec := &statusRecorder{ResponseWriter: w}
+	start := time.Now()
+	if h.metrics != nil {
+		h.metrics.ObserveForwarded(string(hop))
+		defer h.metrics.InFlight(op)()
+		defer func() {
+			h.metrics.ObserveRequest(op, ns.String(), strconv.Itoa(rec.Status()), time.Since(start))
+		}()
+	}
+
 	switch r.Method {
 	case http.MethodGet:
-		h.serveGet(w, r, ns, key, hop, true)
+		h.serveGet(rec, r, ns, key, hop, true)
 	case http.MethodHead:
-		h.serveGet(w, r, ns, key, hop, false)
+		h.serveGet(rec, r, ns, key, hop, false)
 	case http.MethodPut, http.MethodPost:
-		h.servePut(w, r, ns, key, hop)
+		h.servePut(rec, r, ns, key, hop)
 	default:
-		w.Header().Set("Allow", "GET, HEAD, PUT")
-		httpError(w, http.StatusMethodNotAllowed, "method not allowed")
+		rec.Header().Set("Allow", "GET, HEAD, PUT")
+		httpError(rec, http.StatusMethodNotAllowed, "method not allowed")
 	}
+}
+
+func opName(method string) string {
+	switch method {
+	case http.MethodGet:
+		return "get"
+	case http.MethodHead:
+		return "head"
+	case http.MethodPut, http.MethodPost:
+		return "put"
+	default:
+		return "other"
+	}
+}
+
+// statusRecorder captures the status for the metrics label without disturbing
+// the write path: it forwards ReadFrom and Flush so a large object GET still
+// reaches the kernel's sendfile path rather than a user-space copy loop.
+type statusRecorder struct {
+	http.ResponseWriter
+	status int
+}
+
+func (r *statusRecorder) WriteHeader(code int) {
+	if r.status == 0 {
+		r.status = code
+	}
+	r.ResponseWriter.WriteHeader(code)
+}
+
+func (r *statusRecorder) Write(p []byte) (int, error) {
+	if r.status == 0 {
+		r.status = http.StatusOK
+	}
+	return r.ResponseWriter.Write(p)
+}
+
+func (r *statusRecorder) ReadFrom(src io.Reader) (int64, error) {
+	if r.status == 0 {
+		r.status = http.StatusOK
+	}
+	if rf, ok := r.ResponseWriter.(io.ReaderFrom); ok {
+		return rf.ReadFrom(src)
+	}
+	return io.Copy(r.ResponseWriter, src)
+}
+
+func (r *statusRecorder) Flush() {
+	if f, ok := r.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
+func (r *statusRecorder) Unwrap() http.ResponseWriter { return r.ResponseWriter }
+
+func (r *statusRecorder) Status() int {
+	if r.status == 0 {
+		return http.StatusOK
+	}
+	return r.status
 }
 
 // inboundHop reads the role another node assigned to this request.
@@ -241,6 +327,13 @@ func (h *CacheHandler) writePutError(w http.ResponseWriter, ns storage.Namespace
 		httpError(w, http.StatusBadRequest, err.Error())
 	case errors.Is(err, storage.ErrTooLarge):
 		httpError(w, http.StatusRequestEntityTooLarge, err.Error())
+	case errors.Is(err, protocol.ErrOverQuota):
+		// 507 Insufficient Storage. Only a repair write ever sees this: the
+		// sender counts it as declined rather than failed, which is what stops
+		// repair and eviction chasing each other under a tight quota.
+		h.log.Debug("declined a repair write: over the high-water mark",
+			slog.String("ns", ns.String()), slog.String("key", key))
+		httpError(w, http.StatusInsufficientStorage, err.Error())
 	case errors.Is(err, storage.ErrShortWrite):
 		httpError(w, http.StatusBadRequest, err.Error())
 	case errors.Is(err, storage.ErrBadKey), errors.Is(err, storage.ErrBadNamespace):

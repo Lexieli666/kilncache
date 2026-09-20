@@ -1,5 +1,11 @@
 # Three-node KilnCache cluster.
 #
+# Neither the containers nor the network are given fixed names, so Compose
+# derives both from the project name and two projects can run side by side. The
+# integration suite uses its own project (-p kilncache-it) and would otherwise
+# collide with a cluster a developer happens to have running, which is exactly
+# the kind of failure that makes people stop running the tests.
+#
 # Cache data lives in Docker named volumes rather than bind mounts. On a Windows
 # host with the repository on /mnt/d, a bind mount goes through the 9p/virtiofs
 # translation layer, where fsync and rename do not have the semantics the store
@@ -43,7 +49,6 @@ services:
       args:
         VERSION: ${KILNCACHE_VERSION:-dev}
         COMMIT: ${KILNCACHE_COMMIT:-unknown}
-    container_name: kilncache-node-a
     hostname: node-a
     environment:
       <<: *node-env
@@ -55,7 +60,6 @@ services:
 
   node-b:
     <<: *node
-    container_name: kilncache-node-b
     hostname: node-b
     depends_on:
       node-a:
@@ -70,7 +74,6 @@ services:
 
   node-c:
     <<: *node
-    container_name: kilncache-node-c
     hostname: node-c
     depends_on:
       node-a:
@@ -85,7 +88,6 @@ services:
 
 networks:
   kiln:
-    name: kilncache_net
     driver: bridge
 
 volumes:

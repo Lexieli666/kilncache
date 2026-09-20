@@ -33,6 +33,9 @@ type RouterOptions struct {
 
 	// Metrics serves the Prometheus exposition format when non-nil.
 	Metrics http.Handler
+
+	// Stats supplies the node's counters for the /stats endpoint.
+	Stats StatsProvider
 }
 
 // NewRouter builds the node's mux.
@@ -45,6 +48,8 @@ func NewRouter(opts RouterOptions) http.Handler {
 	if opts.Metrics != nil {
 		mux.Handle("GET /metrics", opts.Metrics)
 	}
+
+	mux.HandleFunc("GET /stats", StatsHandler(opts.Node, opts.Version, opts.Stats))
 
 	if opts.DevMode {
 		// pprof is gated behind an explicit flag. Exposing heap and goroutine
