@@ -167,3 +167,7 @@ netem-apply: ## Inject latency and loss between the cluster containers
 .PHONY: netem-clear
 netem-clear: ## Remove injected network conditions
 	scripts/netem.sh clear
+
+.PHONY: bazel-bench
+bazel-bench: ## Bazel end-to-end benchmark (needs an empty compose cluster)
+	scripts/bazel-bench.sh -n 5 -o "$(RESULTS_DIR)"

@@ -193,6 +193,8 @@ func writeMemorySection(sb *strings.Builder, rep Report, dir string) {
 func writeSupportingSections(sb *strings.Builder, dir string) {
 	rel := relResults(dir)
 
+	writeBazelSection(sb, dir, rel)
+
 	// Device baseline, if present.
 	if b, err := os.ReadFile(filepath.Join(dir, "device-baseline.json")); err == nil {
 		var base struct {
@@ -366,4 +368,89 @@ func shortCommit(c string) string {
 		return "unknown"
 	}
 	return c
+}
+
+// bazelReport is the shape of scripts/bazel-bench.sh's output.
+type bazelReport struct {
+	BazelVersion string `json:"bazel_version"`
+	RunsPerPhase int    `json:"runs_per_measured_phase"`
+	Workspace    struct {
+		Targets   int `json:"targets"`
+		Artifacts int `json:"build_artifacts_compared"`
+	} `json:"workspace"`
+	PopulatingValid bool `json:"populating_build_is_valid"`
+	Summary         struct {
+		ColdMedian       float64 `json:"cold_median_seconds"`
+		ColdMin          float64 `json:"cold_min_seconds"`
+		ColdMax          float64 `json:"cold_max_seconds"`
+		Populate         float64 `json:"populate_seconds"`
+		CachedMedian     float64 `json:"cached_median_seconds"`
+		CachedMin        float64 `json:"cached_min_seconds"`
+		CachedMax        float64 `json:"cached_max_seconds"`
+		Reduction        float64 `json:"median_reduction_fraction"`
+		Speedup          float64 `json:"median_speedup"`
+		BytesUp          float64 `json:"bytes_uploaded_populating"`
+		BytesDown        float64 `json:"bytes_downloaded_cached_median"`
+		OutputsIdentical bool    `json:"outputs_identical"`
+	} `json:"summary"`
+	CachedBuilds []struct {
+		Bazel struct {
+			RemoteCacheHits int `json:"remote_cache_hits"`
+			LocallyExecuted int `json:"locally_executed"`
+			TotalActions    int `json:"total_actions"`
+		} `json:"bazel"`
+	} `json:"cached_builds"`
+}
+
+// writeBazelSection renders the headline experiment: what pointing Bazel at
+// KilnCache actually does to a clean rebuild.
+func writeBazelSection(sb *strings.Builder, dir, rel string) {
+	b, err := os.ReadFile(filepath.Join(dir, "bazel-bench.json"))
+	if err != nil {
+		return
+	}
+	var br bazelReport
+	if json.Unmarshal(b, &br) != nil {
+		return
+	}
+
+	fmt.Fprintf(sb, "## The headline experiment: a real Bazel build\n\n")
+	fmt.Fprintf(sb, "A generated C++ workspace of %d targets (%d build artifacts), built with %s.\n",
+		br.Workspace.Targets, br.Workspace.Artifacts, br.BazelVersion)
+	fmt.Fprintf(sb, "Each measured phase is preceded by `bazel clean --expunge` and repeated %d times.\n\n",
+		br.RunsPerPhase)
+
+	fmt.Fprintf(sb, "Source: [`%s/bazel-bench.json`](%s/bazel-bench.json)\n\n", rel, rel)
+	fmt.Fprintf(sb, "| Phase | Median | Range | What it represents |\n|---|---:|---:|---|\n")
+	fmt.Fprintf(sb, "| Cold build, no remote cache | **%.1f s** | %.1f–%.1f s | A developer with nothing cached anywhere. |\n",
+		br.Summary.ColdMedian, br.Summary.ColdMin, br.Summary.ColdMax)
+	populateNote := "The first person to build after a change: every action misses and uploads."
+	if !br.PopulatingValid {
+		populateNote = "**Not a valid population measurement — the cache was not empty.**"
+	}
+	fmt.Fprintf(sb, "| Populating build through KilnCache | %.1f s | — | %s |\n",
+		br.Summary.Populate, populateNote)
+	fmt.Fprintf(sb, "| Rebuild served from KilnCache | **%.1f s** | %.1f–%.1f s | Everyone afterwards. |\n",
+		br.Summary.CachedMedian, br.Summary.CachedMin, br.Summary.CachedMax)
+
+	fmt.Fprintf(sb, "\nSource: [`%s/bazel-bench.json`](%s/bazel-bench.json)\n\n", rel, rel)
+	fmt.Fprintf(sb, "| | |\n|---|---|\n")
+	fmt.Fprintf(sb, "| **Median clean-rebuild time reduction** | **%.1f%%** |\n", br.Summary.Reduction*100)
+	fmt.Fprintf(sb, "| Median speedup | %.2fx |\n", br.Summary.Speedup)
+	if len(br.CachedBuilds) > 0 {
+		c := br.CachedBuilds[0].Bazel
+		fmt.Fprintf(sb, "| Actions served from the cache | %d of %d executable actions; %d executed locally |\n",
+			c.RemoteCacheHits, c.RemoteCacheHits+c.LocallyExecuted, c.LocallyExecuted)
+	}
+	fmt.Fprintf(sb, "| Uploaded while populating | %.0f MiB |\n", br.Summary.BytesUp/(1<<20))
+	fmt.Fprintf(sb, "| Downloaded per cached rebuild | %.0f MiB |\n", br.Summary.BytesDown/(1<<20))
+	fmt.Fprintf(sb, "| Outputs byte-for-byte identical to the cold build | **%v** |\n", br.Summary.OutputsIdentical)
+
+	fmt.Fprintf(sb, "\nThe last row is the one that matters most. A cache that makes a build fast and\n")
+	fmt.Fprintf(sb, "wrong is worse than no cache: every one of the %d build artifacts produced by the\n", br.Workspace.Artifacts)
+	fmt.Fprintf(sb, "cache-served build hashes identically to the one the compiler produced locally.\n\n")
+
+	fmt.Fprintf(sb, "What remains in the cached build is Bazel's own work — loading, analysis, and\n")
+	fmt.Fprintf(sb, "the actions it marks internal — plus downloading the outputs. That is the floor\n")
+	fmt.Fprintf(sb, "a remote cache cannot go below, and it is why the reduction is not higher.\n\n")
 }

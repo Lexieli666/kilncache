@@ -27,7 +27,7 @@ cd "$root" || exit 1
 
 files=("$@")
 if [ ${#files[@]} -eq 0 ]; then
-  mapfile -t files < <(ls README.md BENCHMARKS.md docs/*.md docs/adr/*.md bench/RESULTS_SUMMARY.md 2>/dev/null)
+  mapfile -t files < <(ls README.md BENCHMARKS.md CHANGELOG.md RELEASE_NOTES_*.md docs/*.md docs/adr/*.md bench/RESULTS_SUMMARY.md 2>/dev/null)
 fi
 
 export UNIT_RE='[0-9][0-9,.]*\s*(req/s|reqs/s|requests/s|ops/s|MiB/s|GiB/s|KiB/s|MB/s|GB/s|IOPS|ms\b|µs\b|seconds\b|% (faster|lower|reduction|coverage|of statements)|x faster)'
@@ -47,7 +47,10 @@ import os, re, sys
 
 unit_re = re.compile(os.environ['UNIT_RE'])
 exempt_re = re.compile(os.environ['EXEMPT_RE'])
-ref_re = re.compile(r'bench/results/[A-Za-z0-9._/-]+')
+# A citation may be written relative to the repository root
+# ("bench/results/...") or relative to the citing file
+# ("results/..." from inside bench/). Both are resolved below.
+ref_re = re.compile(r'(?:\.\./)*(?:bench/)?results/[A-Za-z0-9._/-]+')
 
 fail = 0
 checked = 0
@@ -106,7 +109,8 @@ for path in files:
             continue
         for ref in refs:
             ref = ref.rstrip('.,)`')
-            if not os.path.exists(ref):
+            candidates = [ref, os.path.normpath(os.path.join(os.path.dirname(path), ref))]
+            if not any(os.path.exists(c) for c in candidates):
                 print(f'{path}:{lineno}: references a result file that does not exist: {ref}', file=sys.stderr)
                 fail = 1
 

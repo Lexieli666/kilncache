@@ -6,7 +6,7 @@ context loss and resume from "Next".
 - **Repository**: `Lexieli666/kilncache`
 - **Working directory**: `/mnt/d/2026 LYC Job Hunting/SDE-xiaozhao/A. General SWE and Product Engineering/Projects Impl/kilncache`
 - **Spec**: `../../Project Specs/Project_1_KilnCache_Spec.md`
-- **Current phase**: Phase 4 complete; Phase 5 next
+- **Current phase**: **Complete.** v1.0 tagged and released.
 
 ## Environment
 
@@ -308,11 +308,60 @@ Linux 6.6.114.1-microsoft-standard-WSL2, WSL2.
   than the inter-node hop in isolation. Recorded in the result's `netem` field
   rather than glossed over.
 
-**Next**
+**Next**: Phase 5 (done, below).
 
-- Phase 5: the Bazel end-to-end benchmark measured ≥5 times per case, ADRs and
-  docs complete, CHANGELOG, `bench/RESULTS_SUMMARY.md` mapping every measured
-  number to the spec's targets, `v1.0` tag, and the public repository.
+## Phase 5 — Bazel end-to-end benchmark and v1.0
+
+**Done**
+
+- `scripts/bazel-bench.sh`: four phases — cold build with no cache, populating
+  build, cache-served rebuild, and a byte-for-byte comparison of the outputs.
+  Measured phases repeat 5 times with `bazel clean --expunge` before each. The
+  report records whether the cache was actually empty before the populating
+  phase, so that number cannot silently become a cache-hit measurement.
+- `BENCHMARKS.md` extended with the end-to-end results, still generated.
+- `bench/RESULTS_SUMMARY.md`: every target from the specification mapped to its
+  measured value, with the ones that were exceeded explained rather than
+  celebrated, and the resume bullets rewritten with real figures plus two
+  honesty notes about how to quote them.
+- `CHANGELOG.md`, complete docs (architecture, failure model, protocol,
+  performance methodology, perf notes, runbook, bugs, testing), six ADRs.
+
+**Measured** — `bench/results/2026-09-20-yutongzhao/bazel-bench.json`:
+
+| | Median of 5 runs |
+|---|---|
+| Cold build, no remote cache | 25.3 s |
+| Populating build (from an empty cache) | 28.3 s, 1,387 MiB uploaded |
+| Rebuild served from KilnCache | **5.6 s** |
+| **Median reduction** | **77.8%** (target 55–75%, goal ≥60%) |
+| Actions served from cache | 600 of 600 |
+| Outputs identical to the cold build | all 320 artifacts |
+
+**Failed / worked around**
+
+- The clean-checkout verification found the most serious bug in the project:
+  an unanchored `.gitignore` pattern (`kilncache`, no leading slash) had
+  excluded the entire `cmd/kilncache/` directory, so the main binary's source
+  was never committed. Every working-tree check — build, test, lint, the Docker
+  image, CI on a push — stayed green, because they all ran against the working
+  directory rather than against what git tracks. Recorded as bug 11; the lesson
+  is that verifying the artefact and verifying the working directory are
+  different things, and only one of them is what other people get.
+- `scripts/check-numbers.sh` did not recognise citations written relative to the
+  citing file (`results/...` from inside `bench/`), so `RESULTS_SUMMARY.md`
+  failed its own rule. The checker now resolves both spellings.
+
+## Final state
+
+| | Measured |
+|---|---|
+| Tests | 251 unit/property + 63 integration = 314 |
+| Coverage (`make cover-all`) | 81–83% across runs |
+| Go source | 9,529 non-test + 9,538 test lines |
+| Bugs found and documented | 11, in `docs/bugs.md` |
+| ADRs | 6 |
+| Commits | one per phase, each explaining why |
 
 ## Targets (from the spec, section 6 — not yet measured)
 

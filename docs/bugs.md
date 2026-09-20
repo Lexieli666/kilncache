@@ -297,3 +297,39 @@ in production.
 
 **Falsifier**: `TestSameNameDifferentHelpIsRejectedClearly`, which now uses the
 real help strings and asserts the error names both.
+
+---
+
+## 11. The main binary's source was never committed
+
+**Found by**: the Phase 5 verification step "every README command works from a
+clean checkout". Building an export of what git actually tracks produced
+`bin/bench` and `bin/chaos` — and no `bin/kilncache`.
+
+**Cause**: `.gitignore` contained
+
+```
+kilncache
+```
+
+meant to exclude a stray binary built into the repository root. Without a
+leading slash, a gitignore pattern matches **any path component** with that
+name, so it excluded the entire `cmd/kilncache/` directory — `main.go`,
+`healthcheck.go` and their tests.
+
+**Why nothing else caught it.** Every check ran against the working tree, where
+the files exist. `go build ./...`, `go test ./...`, the linter, the Docker build
+(which uses `COPY . .` from the working directory, not from git), and CI on a
+push would all have been green — CI would have failed only once someone cloned
+the repository, which is to say on the first real use.
+
+**Fix**: anchor the patterns (`/kilncache`, `/chaos`, `/bench`) so they match
+only the repository root, and commit the missing directory.
+
+**Why it is recorded**: this is the highest-severity bug in this list, and it
+was found by the least interesting-sounding check. "Does a clean checkout
+build?" reads like a formality next to chaos testing and race detection, and it
+is the only one of them that could have caught this. The lesson is not about
+gitignore syntax; it is that verifying the *artefact* and verifying the
+*working directory* are different things, and only one of them is what other
+people get.

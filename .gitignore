@@ -1,9 +1,15 @@
-# Build output
+# Build output.
+#
+# These patterns are anchored with a leading slash on purpose. An unanchored
+# "kilncache" matches any path component with that name, which silently excluded
+# the entire cmd/kilncache directory -- the main binary's source -- from the
+# repository. It was caught by building from a clean checkout, which is why that
+# check exists. See docs/bugs.md, entry 11.
 /bin/
 /dist/
-kilncache
-kilncache-chaos
-kilncache-bench
+/kilncache
+/chaos
+/bench
 
 # Go
 *.test

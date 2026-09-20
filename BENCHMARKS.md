@@ -157,6 +157,38 @@ Object size grew 128x between the smallest and largest scenario; peak RSS change
 by 36%. A server that buffered whole objects would show the first ratio in the
 second column.
 
+## The headline experiment: a real Bazel build
+
+A generated C++ workspace of 300 targets (320 build artifacts), built with bazel 7.4.1.
+Each measured phase is preceded by `bazel clean --expunge` and repeated 5 times.
+
+Source: [`bench/results/2026-09-20-yutongzhao/bazel-bench.json`](bench/results/2026-09-20-yutongzhao/bazel-bench.json)
+
+| Phase | Median | Range | What it represents |
+|---|---:|---:|---|
+| Cold build, no remote cache | **25.3 s** | 24.2–25.7 s | A developer with nothing cached anywhere. |
+| Populating build through KilnCache | 28.3 s | — | The first person to build after a change: every action misses and uploads. |
+| Rebuild served from KilnCache | **5.6 s** | 4.8–5.8 s | Everyone afterwards. |
+
+Source: [`bench/results/2026-09-20-yutongzhao/bazel-bench.json`](bench/results/2026-09-20-yutongzhao/bazel-bench.json)
+
+| | |
+|---|---|
+| **Median clean-rebuild time reduction** | **77.8%** |
+| Median speedup | 4.50x |
+| Actions served from the cache | 600 of 600 executable actions; 0 executed locally |
+| Uploaded while populating | 1387 MiB |
+| Downloaded per cached rebuild | 1194 MiB |
+| Outputs byte-for-byte identical to the cold build | **true** |
+
+The last row is the one that matters most. A cache that makes a build fast and
+wrong is worse than no cache: every one of the 320 build artifacts produced by the
+cache-served build hashes identically to the one the compiler produced locally.
+
+What remains in the cached build is Bazel's own work — loading, analysis, and
+the actions it marks internal — plus downloading the outputs. That is the floor
+a remote cache cannot go below, and it is why the reduction is not higher.
+
 ## Device baseline
 
 What the filesystem under the cache can do, measured with `fio` on `/home/yzhao/.cache/kilncache-baseline` (ext4).
