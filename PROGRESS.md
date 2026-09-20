@@ -351,6 +351,12 @@ Linux 6.6.114.1-microsoft-standard-WSL2, WSL2.
 - `scripts/check-numbers.sh` did not recognise citations written relative to the
   citing file (`results/...` from inside `bench/`), so `RESULTS_SUMMARY.md`
   failed its own rule. The checker now resolves both spellings.
+- The first CI run on the published repository failed: every script was
+  committed as mode 644, because `core.filemode=false` on this 9p mount means
+  `chmod +x` changes nothing git records. Fixed with
+  `git update-index --chmod=+x` and by naming the interpreter at every call
+  site. Bug 12, and the twin of bug 11 — both are a check that passes against
+  the working directory and fails against the artefact.
 
 ## Final state
 
@@ -359,7 +365,7 @@ Linux 6.6.114.1-microsoft-standard-WSL2, WSL2.
 | Tests | 251 unit/property + 63 integration = 314 |
 | Coverage (`make cover-all`) | 81–83% across runs |
 | Go source | 9,529 non-test + 9,538 test lines |
-| Bugs found and documented | 11, in `docs/bugs.md` |
+| Bugs found and documented | 12, in `docs/bugs.md` |
 | ADRs | 6 |
 | Commits | one per phase, each explaining why |
 

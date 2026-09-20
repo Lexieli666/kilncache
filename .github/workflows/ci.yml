@@ -41,7 +41,7 @@ jobs:
       # reaches README.md or BENCHMARKS.md without a committed raw result
       # fails the build.
       - name: No unmeasured numbers
-        run: scripts/check-numbers.sh
+        run: bash scripts/check-numbers.sh
 
   test:
     name: test

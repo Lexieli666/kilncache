@@ -333,3 +333,41 @@ is the only one of them that could have caught this. The lesson is not about
 gitignore syntax; it is that verifying the *artefact* and verifying the
 *working directory* are different things, and only one of them is what other
 people get.
+
+---
+
+## 12. Every script in the repository was non-executable
+
+**Found by**: the first CI run on the published repository.
+
+```
+scripts/check-numbers.sh: Permission denied
+Process completed with exit code 126
+```
+
+**Cause**: this checkout lives on a Windows drive mounted into WSL, where Git
+sets `core.filemode=false` because the filesystem cannot represent a Unix
+executable bit. `chmod +x` on the working file therefore changed nothing that
+git recorded, and every script was committed as mode `100644`.
+
+Locally everything worked, because every invocation during development went
+through `bash scripts/...`. The one place that ran a script directly was CI,
+which is to say the one place that used what git actually contains.
+
+**Fix**: two layers.
+
+1. `git update-index --chmod=+x scripts/*.sh scripts/*.py` sets the mode in the
+   index directly, independent of what the filesystem can store. `lib.sh` is
+   deliberately left non-executable, because it is sourced rather than run and
+   the mode should say so.
+2. Every invocation — in the Makefile, in CI, and from the Go benchmark driver —
+   names the interpreter explicitly (`bash scripts/x.sh`). A lost mode bit then
+   degrades into nothing instead of into a failed build.
+
+**Why it is recorded**: this is bug 11's twin. Both are the same mistake in
+different clothing — a check that passes against the working directory and fails
+against the artefact — and both were caught by the only two things in the
+project that look at what git contains rather than what is on disk: building
+from a clean export, and CI on a fresh clone. The environment note at the top of
+`PROGRESS.md` even says "do not rely on file mode bits". Writing that down did
+not prevent it; running the artefact did.

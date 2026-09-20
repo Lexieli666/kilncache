@@ -130,15 +130,15 @@ quota-report: ## Measure quota, eviction and index-scan behaviour into bench/res
 
 .PHONY: device-baseline
 device-baseline: ## fio device baseline into bench/results/
-	scripts/device-baseline.sh
+	bash scripts/device-baseline.sh
 
 .PHONY: hostinfo
 hostinfo: ## Record host information into bench/results/
-	scripts/hostinfo.sh
+	bash scripts/hostinfo.sh
 
 .PHONY: fixture
 fixture: ## Generate the Bazel C++ benchmark workspace
-	scripts/gen-bazel-fixture.sh
+	bash scripts/gen-bazel-fixture.sh
 
 .PHONY: clean
 clean: ## Remove build output and coverage artifacts
@@ -146,11 +146,11 @@ clean: ## Remove build output and coverage artifacts
 
 .PHONY: tools
 tools: ## Report the versions of every external tool this repo uses
-	scripts/toolcheck.sh
+	bash scripts/toolcheck.sh
 
 .PHONY: check-numbers
 check-numbers: ## Fail if any published number lacks a raw result file (CONTRIBUTING rule 1)
-	scripts/check-numbers.sh
+	bash scripts/check-numbers.sh
 
 .PHONY: placement-report
 placement-report: ## Measure placement balance and key movement into bench/results/
@@ -162,12 +162,12 @@ benchmarks: build ## Regenerate BENCHMARKS.md from the committed raw results
 
 .PHONY: netem-apply
 netem-apply: ## Inject latency and loss between the cluster containers
-	scripts/netem.sh apply
+	bash scripts/netem.sh apply
 
 .PHONY: netem-clear
 netem-clear: ## Remove injected network conditions
-	scripts/netem.sh clear
+	bash scripts/netem.sh clear
 
 .PHONY: bazel-bench
 bazel-bench: ## Bazel end-to-end benchmark (needs an empty compose cluster)
-	scripts/bazel-bench.sh -n 5 -o "$(RESULTS_DIR)"
+	bash scripts/bazel-bench.sh -n 5 -o "$(RESULTS_DIR)"
