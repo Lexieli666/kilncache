@@ -1,0 +1,109 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GO_VERSION: "1.23"
+
+jobs:
+  lint:
+    name: lint
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+      - name: gofmt
+        run: |
+          out=$(gofmt -l -s $(git ls-files '*.go'))
+          if [ -n "$out" ]; then echo "gofmt needed:"; echo "$out"; exit 1; fi
+      - name: go vet
+        run: go vet ./...
+      - uses: golangci/golangci-lint-action@v6
+        with:
+          version: v1.64.8
+          args: --timeout=5m
+      # CONTRIBUTING rule 1 is enforced, not merely stated: a number that
+      # reaches README.md or BENCHMARKS.md without a committed raw result
+      # fails the build.
+      - name: No unmeasured numbers
+        run: scripts/check-numbers.sh
+
+  test:
+    name: test
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+      - run: go build ./...
+      - run: go test -timeout=15m ./...
+
+  race:
+    name: test-race
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+      # The race detector is the falsifier for every "safe under concurrency"
+      # claim in the README. It runs on every push, not nightly, because a data
+      # race that only CI-at-3am catches is one that ships.
+      - run: go test -race -timeout=25m ./...
+
+  cover:
+    name: coverage
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+      - name: Coverage
+        run: |
+          go test -coverprofile=coverage.out -covermode=atomic -timeout=15m ./...
+          go tool cover -func=coverage.out | tail -1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage.out
+          retention-days: 14
+
+  integration:
+    name: integration
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+      - name: Build images
+        run: docker compose -f deploy/compose/docker-compose.yml build
+      - name: Integration suite
+        run: go test -tags=integration -timeout=25m ./tests/integration/...
+      - name: Cluster logs on failure
+        if: failure()
+        run: docker compose -f deploy/compose/docker-compose.yml logs --tail=200 || true
+      - name: Tear down
+        if: always()
+        run: docker compose -f deploy/compose/docker-compose.yml down -v || true

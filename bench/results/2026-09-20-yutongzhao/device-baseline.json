@@ -1,0 +1,72 @@
+{
+  "kind": "device-baseline",
+  "target": "/home/yzhao/.cache/kilncache-baseline",
+  "filesystem": "ext4",
+  "async_io_engine": "io_uring",
+  "fio_version": "fio-3.38",
+  "host": {
+    "captured_at": "2026-09-20T06:12:17Z",
+    "hostname": "yutongzhao",
+    "cpu_model": "Intel(R) Core(TM) i9-14900KF",
+    "cpu_cores": 32,
+    "mem_total_kb": 32718852,
+    "kernel": "Linux 6.6.114.1-microsoft-standard-WSL2",
+    "arch": "x86_64",
+    "virtualization": "wsl2",
+    "data_dir": "/mnt/d/2026 LYC Job Hunting/SDE-xiaozhao/A. General SWE and Product Engineering/Projects Impl/kilncache",
+    "filesystem": "9p",
+    "fs_device": "D:\\",
+    "fs_mount": "/mnt/d",
+    "mount_options": "rw,noatime,aname=drvfs;path=D:\\;uid=1000;gid=1000;symlinkroot=/mnt/,cache=5,access=client,msize=65536,trans=fd,rfd=6,wfd=6",
+    "disk_model": "unknown",
+    "rotational": "unknown",
+    "go_version": "go version go1.23.12 linux/amd64",
+    "docker_version": "29.1.3",
+    "docker_compose_version": "2.32.4",
+    "bazel_version": "bazel 9.2.0",
+    "fio_version": "fio-3.38",
+    "git_commit": "unknown",
+    "git_dirty": true
+  },
+  "jobs": [
+    {
+      "name": "randwrite_4k_qd1_fsync",
+      "read_iops_mean": 0.000000,
+      "read_bw_kib_s": 0,
+      "read_lat_ns_p50": null,
+      "read_lat_ns_p99": null,
+      "write_iops_mean": 914.564103,
+      "write_bw_kib_s": 3657,
+      "write_lat_ns_p50": 5216,
+      "write_lat_ns_p99": 34048,
+      "sync_lat_ns_p50": 946176,
+      "sync_lat_ns_p99": 2867200
+    },
+    {
+      "name": "randread_4k_qd32",
+      "read_iops_mean": 960643.487179,
+      "read_bw_kib_s": 3837397,
+      "read_lat_ns_p50": 5024,
+      "read_lat_ns_p99": 272384,
+      "write_iops_mean": 0.000000,
+      "write_bw_kib_s": 0,
+      "write_lat_ns_p50": null,
+      "write_lat_ns_p99": null,
+      "sync_lat_ns_p50": null,
+      "sync_lat_ns_p99": null
+    },
+    {
+      "name": "seqwrite_1m_qd8",
+      "read_iops_mean": 0.000000,
+      "read_bw_kib_s": 0,
+      "read_lat_ns_p50": null,
+      "read_lat_ns_p99": null,
+      "write_iops_mean": 5784.666667,
+      "write_bw_kib_s": 5808199,
+      "write_lat_ns_p50": 1003520,
+      "write_lat_ns_p99": 11468800,
+      "sync_lat_ns_p50": null,
+      "sync_lat_ns_p99": null
+    }
+  ]
+}

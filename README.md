@@ -1,0 +1,151 @@
+# KilnCache
+
+[![CI](https://github.com/Lexieli666/kilncache/actions/workflows/ci.yml/badge.svg)](https://github.com/Lexieli666/kilncache/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
+A distributed, disk-backed remote build cache that speaks Bazel's HTTP remote
+cache protocol. Three nodes, content-addressed objects, rendezvous placement,
+two-copy replication before acknowledgement, bounded disk with access-aware
+eviction, and automatic repair of missing replicas.
+
+> **Status: Phase 0 (scaffold).** The node serves `/healthz` and `/readyz`, the
+> toolchain and CI are in place, and a device baseline has been measured. The
+> cache protocol itself lands in Phase 1. Every section below that describes
+> unimplemented behaviour says so. No performance number appears in this file
+> until it has a raw result file under `bench/results/`.
+
+## The problem
+
+A Bazel build without a remote cache rebuilds everything that any developer or
+CI job has already built. With one, a clean checkout downloads the artifacts
+instead of recompiling them. The open question for anyone running that cache is
+what happens when a node dies mid-build, when the disk fills, or when a network
+hiccup truncates a transfer — because a build cache that occasionally returns
+the wrong bytes is far worse than no cache at all.
+
+KilnCache exists to answer those questions with tests and measurements rather
+than assurances.
+
+## What it does
+
+- **Content-addressed storage.** `PUT /cas/<sha256>` streams to a temp file
+  while hashing, rejects on digest mismatch, and publishes with
+  fsync + rename + directory fsync. A partial upload is never visible.
+- **Rendezvous placement.** A pure function maps each key to an ordered list of
+  nodes. Every node computes it identically with no coordination.
+- **Two-copy replication.** A PUT is acknowledged only after the object exists
+  on two nodes. If the second copy cannot be written, the client gets a 503, not
+  a false success.
+- **Replica fallback.** A GET tries local, then primary, then replica. Losing a
+  node costs latency, not correctness.
+- **Bounded disk.** A per-node quota with high and low water marks, driven by a
+  SQLite index of size and last access, evicting by a size-weighted heap.
+- **Self-repair.** A bounded background worker pool finds retained objects whose
+  second copy is missing and recreates it.
+
+## What it deliberately does not do
+
+- Remote **execution** (REAPI). Cache only.
+- **Consensus**, leader election, or dynamic membership — see
+  [ADR-0002](docs/adr/0002-no-consensus.md) for why immutable content-addressed
+  objects make this defensible, and for the one place it is genuinely weaker
+  (action-cache entries, which are not content-addressed).
+- **Authentication, TLS, or multi-tenancy.** The trust boundary is the cluster.
+  Do not expose a node to an untrusted network.
+- **Cross-region replication**, Kubernetes manifests, or a UI.
+
+## Architecture
+
+```
+                    Bazel (--remote_cache=http://node-a:8080)
+                                     |
+            +------------------------+------------------------+
+            |                        |                        |
+         Node A                   Node B                   Node C
+      HTTP front door          HTTP front door          HTTP front door
+            |                        |                        |
+       rendezvous(key) -> {primary, replica}   (same pure function everywhere)
+            |                        |                        |
+     local CAS on disk         local CAS on disk        local CAS on disk
+     sharded dirs + SQLite     sharded dirs + SQLite    sharded dirs + SQLite
+     quota + eviction          quota + eviction         quota + eviction
+            \______________ background repair audit ______________/
+```
+
+Any node is a valid front door. It serves the object if it holds it, otherwise
+it forwards one hop to a node that should. A forwarding header makes loops
+impossible.
+
+Details: [docs/architecture.md](docs/architecture.md) *(Phase 5)* ·
+[docs/failure-model.md](docs/failure-model.md) *(Phase 5)* ·
+[docs/testing.md](docs/testing.md) · [docs/adr/](docs/adr/)
+
+## Quick start
+
+```bash
+# Build and run the three-node cluster
+make compose-up
+curl -s localhost:8080/healthz | jq .
+curl -s localhost:8081/readyz  | jq .
+
+# Point Bazel at it (Phase 1 onward)
+bazel build //... --remote_cache=http://localhost:8080
+
+# Tear down, including the cache volumes
+make compose-down
+```
+
+Single node, no Docker:
+
+```bash
+make build
+./bin/kilncache --node-name=solo --listen=:8080 --data-dir=/tmp/kiln --dev
+```
+
+`make help` lists every target. `make tools` reports which external tools are
+installed and what stops working without each one.
+
+## Development
+
+```bash
+make lint        # gofmt -s, go vet, golangci-lint
+make test        # unit and property tests
+make test-race   # the falsifier for every concurrency claim here
+make cover       # coverage profile and total
+make integration # real servers, real disks; Docker tiers skip loudly if absent
+```
+
+### Building on a Windows drive under WSL2
+
+This checkout lives on `/mnt/d`, a 9p mount. Three consequences, all handled:
+
+- **Bazel** keeps its output base on the Linux filesystem. Use
+  `bazel --bazelrc=.bazelrc.wsl ...`, or `--output_user_root=$HOME/.cache/bazel`.
+- **Cache data** lives in Docker *named volumes*, never bind mounts. fsync and
+  rename on 9p do not have the semantics the store depends on, and the
+  throughput is a fraction of native.
+- **File mode bits** are not meaningful on 9p; nothing in the code or tests
+  asserts on them.
+
+`scripts/device-baseline.sh` refuses to publish a baseline taken on 9p unless
+explicitly overridden, for the same reason.
+
+## Measurement
+
+Rule 1 of [CONTRIBUTING.md](CONTRIBUTING.md): no number appears in this
+repository without a committed command and committed raw output under
+`bench/results/<ISO-date>-<hostname>/`.
+
+The device baseline is the floor every later number is read against — a cache
+serving 90% of what the disk can do is a good cache; one serving 9% has a bug.
+The current baseline is in
+[`bench/results/2026-09-20-yutongzhao/device-baseline.json`](bench/results/2026-09-20-yutongzhao/device-baseline.json),
+with the host it was taken on recorded beside it.
+
+Performance targets for later phases are stated in
+[PROGRESS.md](PROGRESS.md) as targets, and will be replaced by measured values
+in `BENCHMARKS.md` — generated from raw JSON, never hand-edited.
+
+## License
+
+MIT. See [LICENSE](LICENSE).

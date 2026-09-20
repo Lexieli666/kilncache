@@ -1,0 +1,4 @@
+# Keep the Bazel output base on the WSL ext4 filesystem. The workspace lives on a
+# Windows drive mounted at /mnt/d, where Bazel's symlink and file-locking assumptions
+# are both slow and unreliable. Use with: bazel --bazelrc=.bazelrc.wsl ...
+startup --output_user_root=/home/yzhao/.cache/bazel

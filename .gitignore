@@ -1,0 +1,27 @@
+# Build output
+/bin/
+/dist/
+kilncache
+kilncache-chaos
+kilncache-bench
+
+# Go
+*.test
+*.out
+coverage.out
+coverage.html
+
+# Bazel (output base lives in $HOME/.cache/bazel; these are the workspace symlinks)
+/fixtures/bazel-cpp/bazel-*
+bazel-out
+bazel-bin
+bazel-testlogs
+
+# Local scratch
+/tmp/
+*.swp
+.DS_Store
+
+# Never commit cache data directories
+/data/
+/deploy/compose/data/

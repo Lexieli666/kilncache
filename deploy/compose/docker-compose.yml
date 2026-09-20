@@ -1,0 +1,94 @@
+# Three-node KilnCache cluster.
+#
+# Cache data lives in Docker named volumes rather than bind mounts. On a Windows
+# host with the repository on /mnt/d, a bind mount goes through the 9p/virtiofs
+# translation layer, where fsync and rename do not have the semantics the store
+# depends on and where throughput is a fraction of native. Named volumes keep
+# the data on the Linux VM's own filesystem, which is what the benchmarks
+# measure and what the durability argument in docs/adr/0003-durability.md needs.
+
+name: kilncache
+
+# Only node-a declares `build`. All three services share one image tag, and with
+# the containerd image store three concurrent builds of the same tag race each
+# other to export it ("image already exists"). Building once and referencing the
+# result is both correct and faster.
+x-node: &node
+  image: kilncache:${KILNCACHE_VERSION:-dev}
+  pull_policy: never
+  restart: unless-stopped
+  environment: &node-env
+    KILNCACHE_PEERS: "node-a=http://node-a:8080,node-b=http://node-b:8080,node-c=http://node-c:8080"
+    KILNCACHE_REPLICA_COUNT: "2"
+    KILNCACHE_MAX_BYTES: "${KILNCACHE_MAX_BYTES:-8GiB}"
+    KILNCACHE_LOG_LEVEL: "${KILNCACHE_LOG_LEVEL:-info}"
+    KILNCACHE_LOG_FORMAT: "json"
+    KILNCACHE_DEV: "${KILNCACHE_DEV:-true}"
+  healthcheck:
+    # Distroless has no shell and no curl, so the binary probes itself.
+    test: ["CMD", "/usr/local/bin/kilncache", "-healthcheck"]
+    interval: 5s
+    timeout: 3s
+    retries: 12
+    start_period: 3s
+  networks:
+    - kiln
+
+services:
+  node-a:
+    <<: *node
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+      args:
+        VERSION: ${KILNCACHE_VERSION:-dev}
+        COMMIT: ${KILNCACHE_COMMIT:-unknown}
+    container_name: kilncache-node-a
+    hostname: node-a
+    environment:
+      <<: *node-env
+      KILNCACHE_NODE_NAME: node-a
+    ports:
+      - "${KILNCACHE_PORT_A:-8080}:8080"
+    volumes:
+      - data-a:/var/lib/kilncache
+
+  node-b:
+    <<: *node
+    container_name: kilncache-node-b
+    hostname: node-b
+    depends_on:
+      node-a:
+        condition: service_started
+    environment:
+      <<: *node-env
+      KILNCACHE_NODE_NAME: node-b
+    ports:
+      - "${KILNCACHE_PORT_B:-8081}:8080"
+    volumes:
+      - data-b:/var/lib/kilncache
+
+  node-c:
+    <<: *node
+    container_name: kilncache-node-c
+    hostname: node-c
+    depends_on:
+      node-a:
+        condition: service_started
+    environment:
+      <<: *node-env
+      KILNCACHE_NODE_NAME: node-c
+    ports:
+      - "${KILNCACHE_PORT_C:-8082}:8080"
+    volumes:
+      - data-c:/var/lib/kilncache
+
+networks:
+  kiln:
+    name: kilncache_net
+    driver: bridge
+
+volumes:
+  data-a:
+  data-b:
+  data-c:
