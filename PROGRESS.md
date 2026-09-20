@@ -6,7 +6,7 @@ context loss and resume from "Next".
 - **Repository**: `Lexieli666/kilncache`
 - **Working directory**: `/mnt/d/2026 LYC Job Hunting/SDE-xiaozhao/A. General SWE and Product Engineering/Projects Impl/kilncache`
 - **Spec**: `../../Project Specs/Project_1_KilnCache_Spec.md`
-- **Current phase**: Phase 3 complete; Phase 4 next
+- **Current phase**: Phase 4 complete; Phase 5 next
 
 ## Environment
 
@@ -247,12 +247,72 @@ Linux 6.6.114.1-microsoft-standard-WSL2, WSL2.
   registered with different help strings. The unit test had used a placeholder
   help string for both and so held constant the one thing that mattered.
 
+**Next**: Phase 4 (done, below).
+
+## Phase 4 — observability and benchmarks
+
+**Done**
+
+- `cmd/bench`: deterministic corpora, a closed-loop load generator, every
+  latency observation kept (nearest-rank percentiles, not a sample), median of
+  5 runs with the spread published beside it, and a JSON result that records the
+  host, the git commit, the corpus, whether the cache was warm, whether the
+  client shared a host with the servers, and whether netem was active.
+- `bench -render` regenerates `BENCHMARKS.md` from the committed JSON. The file
+  is never hand-edited, which is the mechanism behind rule 1.
+- `scripts/netem.sh` applies `tc netem` inside each container's network
+  namespace without changing the cache image, and `verify` measures the
+  round trip so "this ran under added latency" is itself evidenced.
+- CPU and heap profiles collected from every node *during* load.
+- Memory sampled twice a second per scenario, which is the evidence that RSS
+  does not scale with object size.
+- Docs: `docs/performance-methodology.md`, `docs/perf-notes.md`,
+  `docs/architecture.md`, `docs/failure-model.md`, `docs/runbook.md`.
+
+**Measured** (raw files in `bench/results/2026-09-20-yutongzhao/`):
+
+| Claim | Measured | Source |
+|---|---|---|
+| 64 KiB cache hits, 256 concurrent | 61,041 req/s at 16.2 ms p99 | `bench-latest.json` |
+| 64 KiB cache hits, 64 concurrent | 46,058 req/s at 5.1 ms p99 | `bench-latest.json` |
+| 8 MiB GET aggregate (warm) | 14.5 GiB/s at 256 concurrent | `bench-latest.json` |
+| Replicated PUT aggregate | 1,622 MiB/s at 256 concurrent | `bench-latest.json` |
+| Peak RSS, 64 KiB objects vs 8 MiB objects | 101.9 MiB vs 138.3 MiB (128x object size, 1.36x memory) | `bench-latest.json` |
+| Profiling win 1: eviction throughput | 190 → 28,338 objects/s (149x) | `eviction-throughput.json` |
+| Profiling win 2: pooled read buffer | +41.6% ops/s, −31.8% p99 at c=64 | `bench-before-pooled-buffer-fix.json` vs `bench-latest.json` |
+| Under netem (42 ms RTT, 0.5% loss) | throughput collapses, **0 errors** | `netem/bench-latest.json` |
+| Tests | 251 unit/property + 63 integration | `phase4-verify.md` |
+| Coverage | 82.5% | `phase4-verify.md` |
+
+**Failed / worked around**
+
+- The first attempt at profiling win 2 produced a table scattered around zero —
+  because the edit had silently failed to apply and both runs used the same
+  binary. That accident calibrated this machine's run-to-run noise at roughly
+  ±8%, which is now the bar a result has to clear, and added a habit of
+  confirming the change is in the deployed artefact before believing a
+  comparison. Written up as section 3 of `docs/perf-notes.md`.
+- The PUT scenario originally re-uploaded corpus objects, so after the first
+  pass every write hit the already-stored fast path and the benchmark reported
+  replicated-write throughput roughly ten times too high. It was timing a
+  `stat()` call. Fixed by generating a fresh object per write.
+- The benchmark counted requests cancelled at the end of the measurement window
+  as errors, putting a floor under the error rate that rose with concurrency and
+  fell with duration — a property of the stopwatch, not the cache.
+- `scripts/hostinfo.sh` was invoked by a relative path, which silently failed
+  under `go test` (package directory as cwd) and produced result files with no
+  host record. Same class of bug as the results directory earlier; both now
+  resolve against the repository root.
+- `tc netem` applies to the interface the *client* also reaches the nodes
+  through, so the netem run measures the whole system on a slow network rather
+  than the inter-node hop in isolation. Recorded in the result's `netem` field
+  rather than glossed over.
+
 **Next**
 
-- Phase 4: the benchmark driver (`cmd/bench`), latency and throughput scenarios
-  at several concurrency levels with ≥5 runs each, CPU and heap profiles, an RSS
-  check that memory does not scale with object size, `tc netem` scripts, and
-  `docs/perf-notes.md` with the profiling wins.
+- Phase 5: the Bazel end-to-end benchmark measured ≥5 times per case, ADRs and
+  docs complete, CHANGELOG, `bench/RESULTS_SUMMARY.md` mapping every measured
+  number to the spec's targets, `v1.0` tag, and the public repository.
 
 ## Targets (from the spec, section 6 — not yet measured)
 

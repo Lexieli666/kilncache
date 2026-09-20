@@ -1,0 +1,916 @@
+{
+  "kind": "benchmark",
+  "generated_at": "2026-09-20T11:01:16.567113999Z",
+  "label": "under tc netem",
+  "smoke_run": false,
+  "host": {
+    "arch": "x86_64",
+    "bazel_version": "bazel 7.4.1",
+    "captured_at": "2026-09-20T11:01:16Z",
+    "cpu_cores": 32,
+    "cpu_model": "Intel(R) Core(TM) i9-14900KF",
+    "data_dir": "/mnt/d/2026 LYC Job Hunting/SDE-xiaozhao/A. General SWE and Product Engineering/Projects Impl/kilncache",
+    "disk_model": "unknown",
+    "docker_compose_version": "2.32.4",
+    "docker_version": "29.1.3",
+    "filesystem": "9p",
+    "fio_version": "fio-3.38",
+    "fs_device": "D:\\",
+    "fs_mount": "/mnt/d",
+    "git_commit": "e7782fc00f35258b3f9a6dd62e604b7805342a15",
+    "git_dirty": true,
+    "go_version": "go version go1.23.12 linux/amd64",
+    "hostname": "yutongzhao",
+    "kernel": "Linux 6.6.114.1-microsoft-standard-WSL2",
+    "mem_total_kb": 32718852,
+    "mount_options": "rw,noatime,aname=drvfs;path=D:\\;uid=1000;gid=1000;symlinkroot=/mnt/,cache=5,access=client,msize=65536,trans=fd,rfd=6,wfd=6",
+    "rotational": "unknown",
+    "virtualization": "wsl2"
+  },
+  "setup": {
+    "targets": [
+      "http://localhost:8080",
+      "http://localhost:8081",
+      "http://localhost:8082"
+    ],
+    "nodes": 3,
+    "replica_count": 2,
+    "git_commit": "e7782fc00f35258b3f9a6dd62e604b7805342a15",
+    "version": "dev (e7782fc00f35)",
+    "go_version": "go1.23.12",
+    "runs_per_point": 5,
+    "measured_seconds_per_run": 15,
+    "warmup_seconds_per_run": 5,
+    "concurrency_levels": [
+      16,
+      64
+    ],
+    "cache_warm": true,
+    "client_colocated_with_servers": true,
+    "netem": "tc netem on each node's eth0: delay 20ms +/- 5ms normal, loss 0.5%. Measured inter-node RTT 42-45 ms, against 0.02 ms without it. NOTE: the client reaches the nodes through the same interface, so client traffic is delayed and dropped too -- this measures the whole system under a slow lossy network, not the inter-node hop in isolation.",
+    "client_verifies_digests": false,
+    "corpus_seed": 20260920
+  },
+  "scenarios": [
+    {
+      "name": "get-64k",
+      "description": "64 KiB cache hits: the common case, a Bazel action fetching a small output.",
+      "corpus": {
+        "content": "pseudo-random from the seed; not zeros, so compression or dedup cannot flatter the result",
+        "name": "get-64k",
+        "object_size_bytes": 65536,
+        "objects": 4000,
+        "seed": 20260920,
+        "total_bytes": 262144000
+      },
+      "points": [
+        {
+          "concurrency": 16,
+          "runs": [
+            {
+              "scenario": "get-64k",
+              "op": "get",
+              "concurrency": 16,
+              "duration_seconds": 15.000779661,
+              "operations": 743,
+              "errors": 0,
+              "misses": 0,
+              "bytes": 48693248,
+              "ops_per_second": 49.53075885326812,
+              "mib_per_second": 3.0956724283292574,
+              "error_rate": 0,
+              "latency": {
+                "count": 743,
+                "min_ms": 62.903,
+                "mean_ms": 323.703,
+                "p50_ms": 323.516,
+                "p90_ms": 411.009,
+                "p95_ms": 440.734,
+                "p99_ms": 518.366,
+                "p999_ms": 631.938,
+                "max_ms": 631.938
+              },
+              "verify_failures": 0,
+              "object_size_bytes": 65536
+            },
+            {
+              "scenario": "get-64k",
+              "op": "get",
+              "concurrency": 16,
+              "duration_seconds": 15.000541209,
+              "operations": 739,
+              "errors": 0,
+              "misses": 0,
+              "bytes": 48431104,
+              "ops_per_second": 49.26488915990684,
+              "mib_per_second": 3.0790555724941777,
+              "error_rate": 0,
+              "latency": {
+                "count": 739,
+                "min_ms": 65.102,
+                "mean_ms": 325.839,
+                "p50_ms": 323.989,
+                "p90_ms": 418.819,
+                "p95_ms": 444.113,
+                "p99_ms": 529.798,
+                "p999_ms": 627.732,
+                "max_ms": 627.732
+              },
+              "verify_failures": 0,
+              "object_size_bytes": 65536
+            },
+            {
+              "scenario": "get-64k",
+              "op": "get",
+              "concurrency": 16,
+              "duration_seconds": 15.00010095,
+              "operations": 706,
+              "errors": 0,
+              "misses": 0,
+              "bytes": 46268416,
+              "ops_per_second": 47.06634991013177,
+              "mib_per_second": 2.9416468693832356,
+              "error_rate": 0,
+              "latency": {
+                "count": 706,
+                "min_ms": 96.149,
+                "mean_ms": 341.378,
+                "p50_ms": 339.39,
+                "p90_ms": 438.229,
+                "p95_ms": 467.578,
+                "p99_ms": 554.88,
+                "p999_ms": 679.417,
+                "max_ms": 679.417
+              },
+              "verify_failures": 0,
+              "object_size_bytes": 65536
+            },
+            {
+              "scenario": "get-64k",
+              "op": "get",
+              "concurrency": 16,
+              "duration_seconds": 15.000082171,
+              "operations": 721,
+              "errors": 0,
+              "misses": 0,
+              "bytes": 47251456,
+              "ops_per_second": 48.06640335570466,
+              "mib_per_second": 3.004150209731541,
+              "error_rate": 0,
+              "latency": {
+                "count": 721,
+                "min_ms": 76.358,
+                "mean_ms": 331.647,
+                "p50_ms": 331.492,
+                "p90_ms": 426.646,
+                "p95_ms": 459.183,
+                "p99_ms": 517.272,
+                "p999_ms": 639.585,
+                "max_ms": 639.585
+              },
+              "verify_failures": 0,
+              "object_size_bytes": 65536
+            },
+            {
+              "scenario": "get-64k",
+              "op": "get",
+              "concurrency": 16,
+              "duration_seconds": 15.000420389,
+              "operations": 716,
+              "errors": 0,
+              "misses": 0,
+              "bytes": 46923776,
+              "ops_per_second": 47.73199559960679,
+              "mib_per_second": 2.9832497249754244,
+              "error_rate": 0,
+              "latency": {
+                "count": 716,
+                "min_ms": 68.264,
+                "mean_ms": 334.306,
+                "p50_ms": 333.333,
+                "p90_ms": 431.785,
+                "p95_ms": 457.037,
+                "p99_ms": 521.754,
+                "p999_ms": 857.571,
+                "max_ms": 857.571
+              },
+              "verify_failures": 0,
+              "object_size_bytes": 65536
+            }
+          ],
+          "median": {
+            "scenario": "get-64k",
+            "op": "get",
+            "concurrency": 16,
+            "duration_seconds": 15.000082171,
+            "operations": 721,
+            "errors": 0,
+            "misses": 0,
+            "bytes": 47251456,
+            "ops_per_second": 48.06640335570466,
+            "mib_per_second": 3.004150209731541,
+            "error_rate": 0,
+            "latency": {
+              "count": 721,
+              "min_ms": 76.358,
+              "mean_ms": 331.647,
+              "p50_ms": 331.492,
+              "p90_ms": 426.646,
+              "p95_ms": 459.183,
+              "p99_ms": 517.272,
+              "p999_ms": 639.585,
+              "max_ms": 639.585
+            },
+            "verify_failures": 0,
+            "object_size_bytes": 65536
+          },
+          "spread": {
+            "ops_per_second_min": 47.06634991013177,
+            "ops_per_second_max": 49.53075885326812,
+            "mib_per_second_min": 2.9416468693832356,
+            "mib_per_second_max": 3.0956724283292574,
+            "p99_ms_min": 517.272,
+            "p99_ms_max": 554.88,
+            "ops_relative_range": 0.05127092461857488
+          }
+        },
+        {
+          "concurrency": 64,
+          "runs": [
+            {
+              "scenario": "get-64k",
+              "op": "get",
+              "concurrency": 64,
+              "duration_seconds": 15.0001601,
+              "operations": 2959,
+              "errors": 0,
+              "misses": 0,
+              "bytes": 193921024,
+              "ops_per_second": 197.26456119625016,
+              "mib_per_second": 12.329035074765635,
+              "error_rate": 0,
+              "latency": {
+                "count": 2959,
+                "min_ms": 65.93,
+                "mean_ms": 324.34,
+                "p50_ms": 325.911,
+                "p90_ms": 408.896,
+                "p95_ms": 438.676,
+                "p99_ms": 496.628,
+                "p999_ms": 678.604,
+                "max_ms": 1137.994
+              },
+              "verify_failures": 0,
+              "object_size_bytes": 65536
+            },
+            {
+              "scenario": "get-64k",
+              "op": "get",
+              "concurrency": 64,
+              "duration_seconds": 15.000068498,
+              "operations": 2978,
+              "errors": 0,
+              "misses": 0,
+              "bytes": 195166208,
+              "ops_per_second": 198.53242672838894,
+              "mib_per_second": 12.408276670524309,
+              "error_rate": 0,
+              "latency": {
+                "count": 2978,
+                "min_ms": 62.309,
+                "mean_ms": 322.554,
+                "p50_ms": 324.745,
+                "p90_ms": 406.414,
+                "p95_ms": 431.224,
+                "p99_ms": 502.985,
+                "p999_ms": 623.81,
+                "max_ms": 657.189
+              },
+              "verify_failures": 0,
+              "object_size_bytes": 65536
+            },
+            {
+              "scenario": "get-64k",
+              "op": "get",
+              "concurrency": 64,
+              "duration_seconds": 15.000246366,
+              "operations": 2955,
+              "errors": 0,
+              "misses": 0,
+              "bytes": 193658880,
+              "ops_per_second": 196.996764446342,
+              "mib_per_second": 12.312297777896376,
+              "error_rate": 0,
+              "latency": {
+                "count": 2955,
+                "min_ms": 69.695,
+                "mean_ms": 324.827,
+                "p50_ms": 325.939,
+                "p90_ms": 408.67,
+                "p95_ms": 431.829,
+                "p99_ms": 505.174,
+                "p999_ms": 647.442,
+                "max_ms": 751.26
+              },
+              "verify_failures": 0,
+              "object_size_bytes": 65536
+            },
+            {
+              "scenario": "get-64k",
+              "op": "get",
+              "concurrency": 64,
+              "duration_seconds": 15.000196614,
+              "operations": 2921,
+              "errors": 0,
+              "misses": 0,
+              "bytes": 191430656,
+              "ops_per_second": 194.73078088014987,
+              "mib_per_second": 12.170673805009367,
+              "error_rate": 0,
+              "latency": {
+                "count": 2921,
+                "min_ms": 142.912,
+                "mean_ms": 328.779,
+                "p50_ms": 328.847,
+                "p90_ms": 415.006,
+                "p95_ms": 441.571,
+                "p99_ms": 503.329,
+                "p999_ms": 714.495,
+                "max_ms": 750.231
+              },
+              "verify_failures": 0,
+              "object_size_bytes": 65536
+            },
+            {
+              "scenario": "get-64k",
+              "op": "get",
+              "concurrency": 64,
+              "duration_seconds": 15.000193682,
+              "operations": 2955,
+              "errors": 0,
+              "misses": 0,
+              "bytes": 193658880,
+              "ops_per_second": 196.99745634257738,
+              "mib_per_second": 12.312341021411086,
+              "error_rate": 0,
+              "latency": {
+                "count": 2955,
+                "min_ms": 85.488,
+                "mean_ms": 324.999,
+                "p50_ms": 326.309,
+                "p90_ms": 411.723,
+                "p95_ms": 435.986,
+                "p99_ms": 484.202,
+                "p999_ms": 665.007,
+                "max_ms": 727.792
+              },
+              "verify_failures": 0,
+              "object_size_bytes": 65536
+            }
+          ],
+          "median": {
+            "scenario": "get-64k",
+            "op": "get",
+            "concurrency": 64,
+            "duration_seconds": 15.000193682,
+            "operations": 2955,
+            "errors": 0,
+            "misses": 0,
+            "bytes": 193658880,
+            "ops_per_second": 196.99745634257738,
+            "mib_per_second": 12.312341021411086,
+            "error_rate": 0,
+            "latency": {
+              "count": 2955,
+              "min_ms": 85.488,
+              "mean_ms": 324.999,
+              "p50_ms": 326.309,
+              "p90_ms": 411.723,
+              "p95_ms": 435.986,
+              "p99_ms": 484.202,
+              "p999_ms": 665.007,
+              "max_ms": 727.792
+            },
+            "verify_failures": 0,
+            "object_size_bytes": 65536
+          },
+          "spread": {
+            "ops_per_second_min": 194.73078088014987,
+            "ops_per_second_max": 198.53242672838894,
+            "mib_per_second_min": 12.170673805009367,
+            "mib_per_second_max": 12.408276670524309,
+            "p99_ms_min": 484.202,
+            "p99_ms_max": 505.174,
+            "ops_relative_range": 0.01929794383551855
+          }
+        }
+      ],
+      "memory": {
+        "scenario": "get-64k",
+        "object_size_bytes": 65536,
+        "concurrency": 64,
+        "before": [
+          {
+            "node": "http://localhost:8080",
+            "rss_bytes": 63623168,
+            "heap_alloc_bytes": 15486248,
+            "goroutines": 133,
+            "open_fds": 95
+          },
+          {
+            "node": "http://localhost:8081",
+            "rss_bytes": 64581632,
+            "heap_alloc_bytes": 11683008,
+            "goroutines": 132,
+            "open_fds": 100
+          },
+          {
+            "node": "http://localhost:8082",
+            "rss_bytes": 68644864,
+            "heap_alloc_bytes": 18731432,
+            "goroutines": 138,
+            "open_fds": 100
+          }
+        ],
+        "peak": [
+          {
+            "node": "http://localhost:8080",
+            "rss_bytes": 72929280,
+            "heap_alloc_bytes": 14423040,
+            "goroutines": 117,
+            "open_fds": 86
+          },
+          {
+            "node": "http://localhost:8081",
+            "rss_bytes": 74821632,
+            "heap_alloc_bytes": 15188328,
+            "goroutines": 114,
+            "open_fds": 90
+          },
+          {
+            "node": "http://localhost:8082",
+            "rss_bytes": 72429568,
+            "heap_alloc_bytes": 22884592,
+            "goroutines": 109,
+            "open_fds": 85
+          }
+        ],
+        "after": [
+          {
+            "node": "http://localhost:8080",
+            "rss_bytes": 69107712,
+            "heap_alloc_bytes": 15353344,
+            "goroutines": 82,
+            "open_fds": 62
+          },
+          {
+            "node": "http://localhost:8081",
+            "rss_bytes": 71548928,
+            "heap_alloc_bytes": 13681312,
+            "goroutines": 79,
+            "open_fds": 63
+          },
+          {
+            "node": "http://localhost:8082",
+            "rss_bytes": 68075520,
+            "heap_alloc_bytes": 16471816,
+            "goroutines": 83,
+            "open_fds": 61
+          }
+        ],
+        "peak_rss_mib_max_across_nodes": 71.35546875
+      },
+      "page_cache_note": "WARM: the 250 MiB corpus is 0.8% of the host's 31.2 GiB of RAM, so it can be served entirely from the page cache. These are warm-cache numbers and do not measure the disk. The cold-path floor is the fio device baseline in device-baseline.json."
+    },
+    {
+      "name": "put-replicated",
+      "description": "1 MiB writes with replica count 2: every PUT places a second copy before it returns.",
+      "corpus": {
+        "content": "pseudo-random from the seed; not zeros, so compression or dedup cannot flatter the result",
+        "name": "put-replicated",
+        "object_size_bytes": 1048576,
+        "objects": 2000,
+        "seed": 20260920,
+        "total_bytes": 2097152000
+      },
+      "points": [
+        {
+          "concurrency": 16,
+          "runs": [
+            {
+              "scenario": "put-replicated",
+              "op": "put",
+              "concurrency": 16,
+              "duration_seconds": 15.000588123,
+              "operations": 135,
+              "errors": 0,
+              "misses": 0,
+              "bytes": 141557760,
+              "ops_per_second": 8.999647140035004,
+              "mib_per_second": 8.999647140035004,
+              "error_rate": 0,
+              "latency": {
+                "count": 135,
+                "min_ms": 80.956,
+                "mean_ms": 1856.688,
+                "p50_ms": 1713.882,
+                "p90_ms": 3207.389,
+                "p95_ms": 3530.548,
+                "p99_ms": 4129.954,
+                "p999_ms": 5562.641,
+                "max_ms": 5562.641
+              },
+              "verify_failures": 0,
+              "object_size_bytes": 1048576
+            },
+            {
+              "scenario": "put-replicated",
+              "op": "put",
+              "concurrency": 16,
+              "duration_seconds": 15.00146995,
+              "operations": 141,
+              "errors": 0,
+              "misses": 0,
+              "bytes": 147849216,
+              "ops_per_second": 9.399078921595946,
+              "mib_per_second": 9.399078921595946,
+              "error_rate": 0,
+              "latency": {
+                "count": 141,
+                "min_ms": 236.136,
+                "mean_ms": 1723.397,
+                "p50_ms": 1589.169,
+                "p90_ms": 3024.078,
+                "p95_ms": 3321.229,
+                "p99_ms": 4070.883,
+                "p999_ms": 4315.954,
+                "max_ms": 4315.954
+              },
+              "verify_failures": 0,
+              "object_size_bytes": 1048576
+            },
+            {
+              "scenario": "put-replicated",
+              "op": "put",
+              "concurrency": 16,
+              "duration_seconds": 15.000517515,
+              "operations": 128,
+              "errors": 0,
+              "misses": 0,
+              "bytes": 134217728,
+              "ops_per_second": 8.533038934957037,
+              "mib_per_second": 8.533038934957037,
+              "error_rate": 0,
+              "latency": {
+                "count": 128,
+                "min_ms": 303.509,
+                "mean_ms": 1814.179,
+                "p50_ms": 1709.218,
+                "p90_ms": 2878.203,
+                "p95_ms": 3068.084,
+                "p99_ms": 4100.062,
+                "p999_ms": 5052.251,
+                "max_ms": 5052.251
+              },
+              "verify_failures": 0,
+              "object_size_bytes": 1048576
+            },
+            {
+              "scenario": "put-replicated",
+              "op": "put",
+              "concurrency": 16,
+              "duration_seconds": 15.00075618,
+              "operations": 131,
+              "errors": 0,
+              "misses": 0,
+              "bytes": 137363456,
+              "ops_per_second": 8.732893090726844,
+              "mib_per_second": 8.732893090726844,
+              "error_rate": 0,
+              "latency": {
+                "count": 131,
+                "min_ms": 176.843,
+                "mean_ms": 1791.936,
+                "p50_ms": 1761.915,
+                "p90_ms": 2737.913,
+                "p95_ms": 3078.062,
+                "p99_ms": 3952.613,
+                "p999_ms": 4826.04,
+                "max_ms": 4826.04
+              },
+              "verify_failures": 0,
+              "object_size_bytes": 1048576
+            },
+            {
+              "scenario": "put-replicated",
+              "op": "put",
+              "concurrency": 16,
+              "duration_seconds": 15.000884469,
+              "operations": 147,
+              "errors": 0,
+              "misses": 0,
+              "bytes": 154140672,
+              "ops_per_second": 9.799422180990867,
+              "mib_per_second": 9.799422180990867,
+              "error_rate": 0,
+              "latency": {
+                "count": 147,
+                "min_ms": 173.794,
+                "mean_ms": 1638.385,
+                "p50_ms": 1525.927,
+                "p90_ms": 2848.129,
+                "p95_ms": 3025.012,
+                "p99_ms": 3696.679,
+                "p999_ms": 3835.118,
+                "max_ms": 3835.118
+              },
+              "verify_failures": 0,
+              "object_size_bytes": 1048576
+            }
+          ],
+          "median": {
+            "scenario": "put-replicated",
+            "op": "put",
+            "concurrency": 16,
+            "duration_seconds": 15.000588123,
+            "operations": 135,
+            "errors": 0,
+            "misses": 0,
+            "bytes": 141557760,
+            "ops_per_second": 8.999647140035004,
+            "mib_per_second": 8.999647140035004,
+            "error_rate": 0,
+            "latency": {
+              "count": 135,
+              "min_ms": 80.956,
+              "mean_ms": 1856.688,
+              "p50_ms": 1713.882,
+              "p90_ms": 3207.389,
+              "p95_ms": 3530.548,
+              "p99_ms": 4129.954,
+              "p999_ms": 5562.641,
+              "max_ms": 5562.641
+            },
+            "verify_failures": 0,
+            "object_size_bytes": 1048576
+          },
+          "spread": {
+            "ops_per_second_min": 8.533038934957037,
+            "ops_per_second_max": 9.799422180990867,
+            "mib_per_second_min": 8.533038934957037,
+            "mib_per_second_max": 9.799422180990867,
+            "p99_ms_min": 3696.679,
+            "p99_ms_max": 4129.954,
+            "ops_relative_range": 0.14071476651571294
+          }
+        },
+        {
+          "concurrency": 64,
+          "runs": [
+            {
+              "scenario": "put-replicated",
+              "op": "put",
+              "concurrency": 64,
+              "duration_seconds": 15.000773721,
+              "operations": 622,
+              "errors": 0,
+              "misses": 0,
+              "bytes": 652214272,
+              "ops_per_second": 41.46452786826888,
+              "mib_per_second": 41.46452786826888,
+              "error_rate": 0,
+              "latency": {
+                "count": 622,
+                "min_ms": 64.693,
+                "mean_ms": 1555.625,
+                "p50_ms": 1429.468,
+                "p90_ms": 2703.247,
+                "p95_ms": 3059.39,
+                "p99_ms": 3742.168,
+                "p999_ms": 4909.633,
+                "max_ms": 4909.633
+              },
+              "verify_failures": 0,
+              "object_size_bytes": 1048576
+            },
+            {
+              "scenario": "put-replicated",
+              "op": "put",
+              "concurrency": 64,
+              "duration_seconds": 15.000816854,
+              "operations": 587,
+              "errors": 0,
+              "misses": 0,
+              "bytes": 615514112,
+              "ops_per_second": 39.13120236805472,
+              "mib_per_second": 39.13120236805472,
+              "error_rate": 0,
+              "latency": {
+                "count": 587,
+                "min_ms": 145.449,
+                "mean_ms": 1632.337,
+                "p50_ms": 1504.511,
+                "p90_ms": 2771.262,
+                "p95_ms": 3102.519,
+                "p99_ms": 3782.807,
+                "p999_ms": 4437.955,
+                "max_ms": 4437.955
+              },
+              "verify_failures": 0,
+              "object_size_bytes": 1048576
+            },
+            {
+              "scenario": "put-replicated",
+              "op": "put",
+              "concurrency": 64,
+              "duration_seconds": 15.00045771,
+              "operations": 576,
+              "errors": 0,
+              "misses": 0,
+              "bytes": 603979776,
+              "ops_per_second": 38.39882829815331,
+              "mib_per_second": 38.39882829815331,
+              "error_rate": 0,
+              "latency": {
+                "count": 576,
+                "min_ms": 63.653,
+                "mean_ms": 1649.016,
+                "p50_ms": 1518.571,
+                "p90_ms": 2736.856,
+                "p95_ms": 3100.727,
+                "p99_ms": 3887.876,
+                "p999_ms": 4740.178,
+                "max_ms": 4740.178
+              },
+              "verify_failures": 0,
+              "object_size_bytes": 1048576
+            },
+            {
+              "scenario": "put-replicated",
+              "op": "put",
+              "concurrency": 64,
+              "duration_seconds": 15.000201073,
+              "operations": 584,
+              "errors": 0,
+              "misses": 0,
+              "bytes": 612368384,
+              "ops_per_second": 38.93281144418697,
+              "mib_per_second": 38.93281144418697,
+              "error_rate": 0,
+              "latency": {
+                "count": 584,
+                "min_ms": 166.43,
+                "mean_ms": 1599.515,
+                "p50_ms": 1521.078,
+                "p90_ms": 2750.387,
+                "p95_ms": 3034.844,
+                "p99_ms": 3599.147,
+                "p999_ms": 4192.317,
+                "max_ms": 4192.317
+              },
+              "verify_failures": 0,
+              "object_size_bytes": 1048576
+            },
+            {
+              "scenario": "put-replicated",
+              "op": "put",
+              "concurrency": 64,
+              "duration_seconds": 15.000092516,
+              "operations": 589,
+              "errors": 0,
+              "misses": 0,
+              "bytes": 617611264,
+              "ops_per_second": 39.26642448183151,
+              "mib_per_second": 39.26642448183151,
+              "error_rate": 0,
+              "latency": {
+                "count": 589,
+                "min_ms": 129.913,
+                "mean_ms": 1592.252,
+                "p50_ms": 1505.807,
+                "p90_ms": 2679.277,
+                "p95_ms": 3095.376,
+                "p99_ms": 3625.152,
+                "p999_ms": 4633.995,
+                "max_ms": 4633.995
+              },
+              "verify_failures": 0,
+              "object_size_bytes": 1048576
+            }
+          ],
+          "median": {
+            "scenario": "put-replicated",
+            "op": "put",
+            "concurrency": 64,
+            "duration_seconds": 15.000816854,
+            "operations": 587,
+            "errors": 0,
+            "misses": 0,
+            "bytes": 615514112,
+            "ops_per_second": 39.13120236805472,
+            "mib_per_second": 39.13120236805472,
+            "error_rate": 0,
+            "latency": {
+              "count": 587,
+              "min_ms": 145.449,
+              "mean_ms": 1632.337,
+              "p50_ms": 1504.511,
+              "p90_ms": 2771.262,
+              "p95_ms": 3102.519,
+              "p99_ms": 3782.807,
+              "p999_ms": 4437.955,
+              "max_ms": 4437.955
+            },
+            "verify_failures": 0,
+            "object_size_bytes": 1048576
+          },
+          "spread": {
+            "ops_per_second_min": 38.39882829815331,
+            "ops_per_second_max": 41.46452786826888,
+            "mib_per_second_min": 38.39882829815331,
+            "mib_per_second_max": 41.46452786826888,
+            "p99_ms_min": 3599.147,
+            "p99_ms_max": 3887.876,
+            "ops_relative_range": 0.07834411887681463
+          }
+        }
+      ],
+      "memory": {
+        "scenario": "put-replicated",
+        "object_size_bytes": 1048576,
+        "concurrency": 64,
+        "before": [
+          {
+            "node": "http://localhost:8080",
+            "rss_bytes": 69369856,
+            "heap_alloc_bytes": 13435416,
+            "goroutines": 79,
+            "open_fds": 59
+          },
+          {
+            "node": "http://localhost:8081",
+            "rss_bytes": 72073216,
+            "heap_alloc_bytes": 18892184,
+            "goroutines": 79,
+            "open_fds": 63
+          },
+          {
+            "node": "http://localhost:8082",
+            "rss_bytes": 68038656,
+            "heap_alloc_bytes": 15270904,
+            "goroutines": 84,
+            "open_fds": 61
+          }
+        ],
+        "peak": [
+          {
+            "node": "http://localhost:8080",
+            "rss_bytes": 86814720,
+            "heap_alloc_bytes": 40818496,
+            "goroutines": 232,
+            "open_fds": 140
+          },
+          {
+            "node": "http://localhost:8081",
+            "rss_bytes": 91230208,
+            "heap_alloc_bytes": 40932184,
+            "goroutines": 242,
+            "open_fds": 146
+          },
+          {
+            "node": "http://localhost:8082",
+            "rss_bytes": 79175680,
+            "heap_alloc_bytes": 33607056,
+            "goroutines": 222,
+            "open_fds": 135
+          }
+        ],
+        "after": [
+          {
+            "node": "http://localhost:8080",
+            "rss_bytes": 80973824,
+            "heap_alloc_bytes": 27549656,
+            "goroutines": 158,
+            "open_fds": 110
+          },
+          {
+            "node": "http://localhost:8081",
+            "rss_bytes": 76615680,
+            "heap_alloc_bytes": 25762296,
+            "goroutines": 91,
+            "open_fds": 73
+          },
+          {
+            "node": "http://localhost:8082",
+            "rss_bytes": 77385728,
+            "heap_alloc_bytes": 25102736,
+            "goroutines": 108,
+            "open_fds": 85
+          }
+        ],
+        "peak_rss_mib_max_across_nodes": 87.00390625
+      },
+      "page_cache_note": "WARM: the 2.0 GiB corpus is 6.3% of the host's 31.2 GiB of RAM, so it can be served entirely from the page cache. These are warm-cache numbers and do not measure the disk. The cold-path floor is the fio device baseline in device-baseline.json."
+    }
+  ]
+}

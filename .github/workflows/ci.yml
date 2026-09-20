@@ -108,7 +108,7 @@ jobs:
       - name: Build images
         run: docker compose -f deploy/compose/docker-compose.yml build
       - name: Integration suite
-        run: go test -tags=integration -timeout=30m ./tests/integration/... ./cmd/chaos/
+        run: go test -tags=integration -timeout=35m ./tests/integration/... ./cmd/chaos/ ./cmd/bench/
       - name: Cluster logs on failure
         if: failure()
         run: docker compose -f deploy/compose/docker-compose.yml logs --tail=200 || true

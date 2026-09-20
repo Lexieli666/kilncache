@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Lexieli666/kilncache/internal/protocol"
@@ -247,13 +248,55 @@ func (p *peerObject) Read(b []byte) (int, error) {
 	return n, err
 }
 
-// WriteTo streams straight through without an intermediate buffer of its own,
-// so a forwarded GET does not materialise the object anywhere.
+// WriteTo streams a peer's response straight through to the client.
+//
+// The copy is an explicit loop over a pooled buffer for the same reason as
+// storage.Object.WriteTo: io.Copy would find the destination's ReadFrom, and
+// net/http's response writer allocates a fresh 32 KiB buffer per call when the
+// source is not a file. Neither end of a forwarded read is a file, so sendfile
+// is out of reach regardless; the only choice is whose buffer gets used.
 func (p *peerObject) WriteTo(w io.Writer) (int64, error) {
-	n, err := io.Copy(w, p.body)
-	p.read += n
-	return n, err
+	buf, ok := peerCopyPool.Get().(*[]byte)
+	if !ok {
+		b := make([]byte, peerCopyBufSize)
+		buf = &b
+	}
+	defer peerCopyPool.Put(buf)
+
+	var written int64
+	for {
+		nr, rerr := p.body.Read(*buf)
+		if nr > 0 {
+			nw, werr := w.Write((*buf)[:nr])
+			written += int64(nw)
+			p.read += int64(nw)
+			if werr != nil {
+				return written, werr
+			}
+			if nw != nr {
+				return written, io.ErrShortWrite
+			}
+		}
+		if rerr != nil {
+			if errors.Is(rerr, io.EOF) {
+				return written, nil
+			}
+			return written, rerr
+		}
+	}
 }
+
+// peerCopyPool holds the buffers forwarded reads stream through. The size
+// matches the store's own copy buffer, so a forwarded read costs the same
+// number of syscall pairs as a local one.
+var peerCopyPool = sync.Pool{
+	New: func() any {
+		b := make([]byte, peerCopyBufSize)
+		return &b
+	},
+}
+
+const peerCopyBufSize = 256 << 10
 
 func (p *peerObject) Close() error {
 	err := p.body.Close()

@@ -59,20 +59,32 @@ for path in files:
     text = open(path, encoding='utf-8').read()
     lines = text.splitlines()
 
-    # Split into blocks separated by blank lines; a Markdown table counts as one
-    # block, so a "Source:" line under the table backs every row in it.
-    blocks, start, cur = [], 0, []
+    # Split into blocks separated by blank lines, then merge a block that opens
+    # with a table row into the one before it.
+    #
+    # A table and the sentence that introduces it are one unit of meaning: the
+    # sentence is where the "Source:" link naturally goes, and requiring the
+    # link inside the table itself would put a URL in every row. Merging models
+    # the document the way a reader sees it.
+    raw, start, cur = [], 0, []
     for i, line in enumerate(lines):
         if line.strip() == '':
             if cur:
-                blocks.append((start, cur))
+                raw.append((start, cur))
                 cur = []
         else:
             if not cur:
                 start = i + 1
             cur.append(line)
     if cur:
-        blocks.append((start, cur))
+        raw.append((start, cur))
+
+    blocks = []
+    for lineno, block in raw:
+        if blocks and block[0].lstrip().startswith('|'):
+            blocks[-1] = (blocks[-1][0], blocks[-1][1] + block)
+            continue
+        blocks.append((lineno, block))
 
     in_code = False
     for lineno, block in blocks:

@@ -643,19 +643,61 @@ func (o *Object) Read(p []byte) (int, error) {
 	return n, err
 }
 
-// WriteTo lets io.Copy move the file without a user-space buffer when
-// verification is off. This is what makes a large-object GET cost one sendfile
-// rather than a read/write loop; with verification on, the bytes must pass
-// through the hasher and the fast path cannot be used.
+// WriteTo streams the object to w.
+//
+// With verification off, io.Copy is allowed to find the destination's ReadFrom
+// and reach the kernel's sendfile path: the bytes never enter user space at
+// all, which is what makes a large-object GET cheap.
+//
+// With verification on the bytes must pass through the hasher, so sendfile is
+// out of reach and the copy is an explicit loop over a pooled buffer.
+//
+// The explicit loop matters, and the reason is not obvious. The natural
+// spelling is io.CopyBuffer(w, reader, pooledBuf) -- but io.CopyBuffer *ignores
+// the buffer it is handed* whenever the destination implements io.ReaderFrom,
+// and delegates to that instead. The chain here ends at net/http's response
+// writer, which then allocates its own 32 KiB buffer per call. A CPU profile of
+// a saturated 64 KiB GET workload showed that allocation at 3.6% of total CPU:
+// the pooled buffer was taken, never used, and returned, while every request
+// allocated afresh. See docs/perf-notes.md for what that did and did not buy.
 func (o *Object) WriteTo(w io.Writer) (int64, error) {
 	if o.verify {
 		buf := getBuf()
 		defer putBuf(buf)
-		return io.CopyBuffer(w, struct{ io.Reader }{o}, *buf)
+		return o.copyVerified(w, *buf)
 	}
 	n, err := io.Copy(w, o.f)
 	o.bytesServed += n
 	return n, err
+}
+
+// copyVerified is io.Copy's loop written out, so that the pooled buffer is
+// actually the buffer used.
+func (o *Object) copyVerified(w io.Writer, buf []byte) (int64, error) {
+	var written int64
+	for {
+		nr, rerr := o.f.Read(buf)
+		if nr > 0 {
+			if _, herr := o.hasher.Write(buf[:nr]); herr != nil {
+				return written, herr
+			}
+			nw, werr := w.Write(buf[:nr])
+			written += int64(nw)
+			o.bytesServed += int64(nw)
+			if werr != nil {
+				return written, werr
+			}
+			if nw != nr {
+				return written, io.ErrShortWrite
+			}
+		}
+		if rerr != nil {
+			if errors.Is(rerr, io.EOF) {
+				return written, nil
+			}
+			return written, rerr
+		}
+	}
 }
 
 // File exposes the underlying handle for http.ServeContent, which needs a

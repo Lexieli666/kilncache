@@ -93,7 +93,7 @@ cover-html: cover ## Coverage as HTML
 
 .PHONY: integration
 integration: ## Integration tests (starts real servers; needs Docker for the container suite)
-	$(GO) test -tags=integration -timeout=25m ./tests/integration/... ./cmd/chaos/
+	$(GO) test -tags=integration -timeout=30m ./tests/integration/... ./cmd/chaos/ ./cmd/bench/
 
 .PHONY: compose-up
 compose-up: ## Start the three-node cluster
@@ -155,3 +155,15 @@ check-numbers: ## Fail if any published number lacks a raw result file (CONTRIBU
 .PHONY: placement-report
 placement-report: ## Measure placement balance and key movement into bench/results/
 	KILNCACHE_RESULTS_DIR="$(RESULTS_DIR)" $(GO) test -run TestWritePlacementReport -v -count=1 ./internal/cluster/
+
+.PHONY: benchmarks
+benchmarks: build ## Regenerate BENCHMARKS.md from the committed raw results
+	$(BIN_DIR)/bench -render "$(RESULTS_DIR)" -render-out BENCHMARKS.md
+
+.PHONY: netem-apply
+netem-apply: ## Inject latency and loss between the cluster containers
+	scripts/netem.sh apply
+
+.PHONY: netem-clear
+netem-clear: ## Remove injected network conditions
+	scripts/netem.sh clear
