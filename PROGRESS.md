@@ -358,6 +358,13 @@ Linux 6.6.114.1-microsoft-standard-WSL2, WSL2.
   site. Bug 12, and the twin of bug 11 — both are a check that passes against
   the working directory and fails against the artefact.
 
+## Released
+
+- **Repository**: https://github.com/Lexieli666/kilncache (public)
+- **Release**: https://github.com/Lexieli666/kilncache/releases/tag/v1.0
+- **CI**: green on a fresh clone — lint, test, test-race, coverage (81.4%
+  reported by the runner) and the integration suite.
+
 ## Final state
 
 | | Measured |

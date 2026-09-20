@@ -224,7 +224,7 @@ make check-numbers     # the rule, enforced
 | [Performance methodology](docs/performance-methodology.md) | How the numbers were made, and where they are honest about their limits. |
 | [Performance notes](docs/perf-notes.md) | Two profiling wins, and one that bought nothing. |
 | [Runbook](docs/runbook.md) | For whoever is holding this at 3 a.m. |
-| [Bugs](docs/bugs.md) | Ten bugs the tests and chaos runs caught, and what each one taught. |
+| [Bugs](docs/bugs.md) | Twelve bugs the tests, chaos runs and CI caught, and what each one taught. |
 | [Testing](docs/testing.md) | Six kinds of test and what each answers. |
 | [ADRs](docs/adr/) | Why no consensus, why rendezvous hashing, why synchronous replication, why this eviction policy. |
 

@@ -65,7 +65,7 @@ makes "faster" mean something.
 - **Placement** — [ADR-0004](docs/adr/0004-rendezvous-hashing.md): rendezvous
   hashing measured at 1.0127 imbalance over 50,000 keys with nothing to tune
   ([placement.json](bench/results/2026-09-20-yutongzhao/placement.json)).
-- **Eleven bugs** — [docs/bugs.md](docs/bugs.md). Including two subsystems that
+- **Twelve bugs** — [docs/bugs.md](docs/bugs.md). Including two subsystems that
   fought each other until the quota stopped being enforced, a benchmark that
   was timing a `stat()` call, and a `.gitignore` line that kept the main binary
   out of the repository.
